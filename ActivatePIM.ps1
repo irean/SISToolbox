@@ -1,4 +1,4 @@
-function Activate-MGPimRole {
+function Enable-MGPimRole {
 
     [CmdletBinding()]
     param (
@@ -75,9 +75,9 @@ function Activate-MGPimRole {
         Author:         Sandra Saluti
         Creation Date:  2022-11-13
     .EXAMPLE
-        Activate-MGPimRole -TenantID randomcompany.onmicrosoft.com -role 'User Administrator' 
+        Enable-MGPimRole -TenantID randomcompany.onmicrosoft.com -role 'User Administrator' 
     .EXAMPLE
-        Activate-MGPimRole -TenantID a3506fxx-xxxx-4659-8168-xxxxxxxxx -role 'Exchange Administrator' -Justification 'Updating MailFlow' 
+        Enable-MGPimRole -TenantID a3506fxx-xxxx-4659-8168-xxxxxxxxx -role 'Exchange Administrator' -Justification 'Updating MailFlow' 
 #>
     
 }
