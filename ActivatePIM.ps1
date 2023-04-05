@@ -5,7 +5,7 @@ function Enable-MGPimRole {
         [Parameter(Mandatory=$true)]
         [String]$TenantID,
         [Validateset(
-            'Application Administrator', 'Exchange Administrator', 'Global Administrator', 'Security Administrator','SharePoint Administrator', 'User Administrator'
+            'Application Administrator', 'Exchange Administrator', 'Global Administrator', 'Global Reader','Security Administrator','SharePoint Administrator', 'User Administrator'
         )]
         [Parameter(Mandatory=$true)]
         [String]$role,

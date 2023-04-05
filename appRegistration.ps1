@@ -1,9 +1,9 @@
 [CmdletBinding()]
 
 # Change values based on your new application and tenant
-$DisplayName = "<Name Of Application>"
-$description = "<desctription of your application>"
-$tenantid = "<tenantID>"
+$DisplayName = "Test App Logic Apps"
+$description = "Testing logic app"
+$tenantid = "delusionaldev.omicrosoft.com"
 
 # Create the application
 $body = ConvertTo-Json -Depth 20 @{ 
