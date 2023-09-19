@@ -80,4 +80,48 @@ The `SaveFileLocation` script is a handy utility designed to facilitate the sele
 - **Path Storage**: The selected folder path is stored in the `$folder` variable, making it available for use in your scripts.
 
 
+## Script: New-MgSecurityGroupDynamicUser
+
+### Overview
+
+The `New-MgSecurityGroupDynamicUser` script is a tool for creating dynamic user security groups using Microsoft Graph, targeting specific licenses by their service plans. This script captures all users assigned a specific license to a security group. 
+
+## Script Purpose
+
+- **Dynamic User Security Groups**: This script automates the creation of dynamic user security groups based on the selected license.
+
+- **Service Plan Targeting**: You can specify the Service Plan ID (ServicePlanID) to include in the dynamic group. Refer to Microsoft's official documentation for [Product names and service plan identifiers for licensing](https://docs.microsoft.com/en-us/azure/active-directory/enterprise-users/licensing-service-plan-reference) to find the relevant Service Plan IDs.
+
+- **Exclusion Support**: Optionally, you can provide exclusion Service Plan IDs (notincludeServicePlanID) to separate one license from another. This helps ensure precise targeting within the selected license.
+
+- **Organization Context**: The organization name (orgnames) is incorporated into the security group name for naming purpose. The resulting group name follows the format: `lic-audit-companyname-licensename`.
+
+## Parameters
+
+- **$licname**: This parameter specifies the name of the license you want to target, for example, "M365_E3".
+
+- **$ServicePlanID**: Provide the ID of the service plan you want to include in the dynamic user security group. Refer to the Microsoft documentation mentioned above for Service Plan IDs.
+
+- **$notincludeServicePlanID**: (Optional) Use this parameter to specify exclusion IDs that help separate one license from another. It ensures precise targeting within the selected license.
+
+- **$orgnames**: This parameter represents the organization name and is used to create the security group name in the format: `lic-audit-companyname-licensename`.
+
+## Example
+
+```powershell
+# Create a dynamic user security group targeting specific licenses and service plans
+
+# Specify the license name, service plan ID, and organization name
+$licname = "M365_E3"
+$ServicePlanID = "<ServicePlanID>"
+$orgnames = "companyname"
+
+# Optionally, specify exclusion Service Plan IDs
+$notincludeServicePlanID = "<ExclusionServicePlanID>"
+
+# Invoke the New-MgSecurityGroupDynamicUser script
+New-MgSecurityGroupDynamicUser -licname $licname -ServicePlanID $ServicePlanID -notincludeServicePlanID $notincludeServicePlanID -orgnames $orgnames
+
+
+
 
