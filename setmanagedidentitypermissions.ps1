@@ -40,7 +40,7 @@ function Set-MIPermissions {
         [String[]]$roles
     )
     
-}
+
 test-module -name Microsoft.Graph.Authentication
 test-module -name Microsoft.Graph.Applications
 
@@ -55,5 +55,6 @@ $Roles | ForEach-Object {
 
     New-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $managedIdentityId -PrincipalId $managedIdentityId -ResourceId $mggraph.Id -AppRoleId $role.Id
 
+}
 }
 
