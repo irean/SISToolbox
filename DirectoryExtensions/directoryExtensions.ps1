@@ -1,6 +1,6 @@
 #Create Directory Extension Azure AD for UserPurpose.
 
-function Create-DirectoryExtensionUserPurpose {
+function Create-DirectoryExtensionCreation {
     param (
         [Parameter()]
         [String]$ApplicationObjectID,

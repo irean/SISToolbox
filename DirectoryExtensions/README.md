@@ -10,16 +10,16 @@ More information can be found here https://learn.microsoft.com/en-us/graph/exten
     1. Go to Azure AD -> App Registrations -> Create new
     1. Add permissions "user.readwrite.all" , "directory.read.all" as application
 1. Create the Directory Extension
-   1.  Connect to Mg with scopes application.readwrite.all
-    2. Go to Repository User LifeCycles and download PowerShell Script directoryextensions.ps1
+   1.  Connect to MgGraph with scopes application.readwrite.all
+    2. in Repository download PowerShell Script directoryextensions.ps1
     3. Run file  in __Powershell 7__
-    4. Run function __Create-DirectoryExtensionUserPurpose -ApplicationObjectID__ _<the objectID of the application you created in step 1>_ __-nameofextension__ _< the name you want to use >_
+    4. Run function __Create-DirectoryExtensionCreation -ApplicationObjectID__ _<the objectID of the application you created in step 1>_ __-nameofextension__ _< the name you want to use >_
 2. Add value to the new extension from logic apps, scripts and more 
 
 #### Example
 
 ```
-PS C:\Code\GitHub\reports> Create-DirectoryExtension -ApplicationObjectID -nameofextension UserPurposeExtension
+PS C:\Code\GitHub\reports> Create-DirectoryExtensionCreation -ApplicationObjectID -nameofextension UserPurposeExtension
 
 ```
 
