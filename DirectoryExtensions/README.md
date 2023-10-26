@@ -1,6 +1,6 @@
 ## Directory Extension Functions
 
-The main purpose is to create data extensions that are disoverable and filerabel through out the tenant. There are however a few limitations like 100 extensions and problem to find extensions from applications that were accidently deleted. 
+The main purpose is to create data extensions that are disoverable and filterabel through out the tenant. There are however a few limitations like 100 extensions and problem to find extensions from applications that were accidently deleted. 
 
 More information can be found here https://learn.microsoft.com/en-us/graph/extensibility-overview?tabs=http
 
