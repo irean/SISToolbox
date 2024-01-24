@@ -122,6 +122,16 @@ $notincludeServicePlanID = "<ExclusionServicePlanID>"
 # Invoke the New-MgSecurityGroupDynamicUser script
 New-MgSecurityGroupDynamicUser -licname $licname -ServicePlanID $ServicePlanID -notincludeServicePlanID $notincludeServicePlanID -orgnames $orgnames
 
+```
+
+## Script: ConvertTo-PsCustomObject 
+
+### overview
+A helper method to convert HashTable and OrderedDictionary to PSCustomObject without the
+extra properties that are added when using [pscustomobject].
+Handles lists returned from Invoke-MgRestMethod to recursively convert all of the reponse into
+PSCustomObjects and not just the top object
+
 
 
 
