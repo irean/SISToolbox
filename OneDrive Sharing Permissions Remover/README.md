@@ -31,6 +31,9 @@ This script removes sharing permissions on files and folders within users' OneDr
 #### `igall`
 A helper function that makes repeated requests to the Graph API to handle paginated responses. It fetches all items from the given URI.
 
+#### `test-module`
+A helper function checking that required powershell module is installed and imported before connecting. 
+
 #### `processChildren`
 Processes the child items (files, folders, and notebooks) within a specified folder, checking if they are shared. If shared, permissions are removed.
 
