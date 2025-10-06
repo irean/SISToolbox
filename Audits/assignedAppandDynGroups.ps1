@@ -131,7 +131,7 @@ $eusers = $users | ForEach-Object {
         $user
     }
     else {
-        write-host "Could not find $displayname"
+        write-host "Could not find $displayname" -ForegroundColor Red
     }
 }
 
@@ -141,18 +141,63 @@ $assignments = $eusers | Foreach-Object {
 
     $upn = $_.userPrincipalName
     $a = Igall "https://graph.microsoft.com/v1.0/users/$upn/appRoleAssignments" 
-    $a | Foreach-Object {
-       
-        add-member -InputObject $auser.psobject.copy() -NotePropertyName assignmentType -NotePropertyValue $_.principalType -Force -PassThru |
-        add-member -NotePropertyName  GroupDisplayName -NotePropertyValue $_.principalDisplayName -force -PassThru |
-        add-member -NotePropertyName resourceDisplayName -NotePropertyValue $_.resourceDisplayName -force -PassThru |
-        add-member -NotePropertyName resourceID -NotePropertyValue $_.resourceId -force -PassThru
-    }
+    $a | ForEach-Object {
+        $assignmentObj = $auser.PSObject.Copy() |
+        Add-Member -NotePropertyName assignmentType      -NotePropertyValue $_.principalType        -Force -PassThru |
+        Add-Member -NotePropertyName GroupDisplayName    -NotePropertyValue $_.principalDisplayName -Force -PassThru |
+        Add-Member -NotePropertyName resourceDisplayName -NotePropertyValue $_.resourceDisplayName  -Force -PassThru |
+        Add-Member -NotePropertyName resourceID          -NotePropertyValue $_.resourceId           -Force -PassThru
 
-    
+        # get the service principal for this resource
+        $sp = Invoke-MgGraphRequest -Method GET -Uri "https://graph.microsoft.com/v1.0/servicePrincipals/$($_.resourceId)"
+        If ($sp.preferredSingleSignOnMode) {
+            $assignmentObj | Add-Member -NotePropertyName SSO -NotePropertyValue $sp.preferredSingleSignOnMode -Force -PassThru
+
+        }
+        else {
+            $app = Invoke-MgGraphRequest -method GET -uri "https://graph.microsoft.com/v1.0/applications?`$filter=appId eq '$($sp.appId)'"
+            if ($app.value.count -eq 0) {
+                $assignmentObj | Add-Member -NotePropertyName SSO -NotePropertyValue False -Force -PassThru
+            }
+            else {
+                $appObj = $app.value[0]
+                Write-Host "$($appobj.displayname)"
+
+                $uris = @()
+                if ($appObj.web.redirectUris) { 
+                    $uris += $appObj.web.redirectUris 
+                }
+                if ($appObj.spa.redirectUris) { 
+                    $uris += $appObj.spa.redirectUris 
+                }
+                if ($appObj.publicClient.redirectUris) {
+                    $uris += $appObj.publicClient.redirectUris 
+                }
+
+                if ($uris -match "oidc" -or $uris -match "signin" -or $appObj.requiredResourceAccess.Count -gt 0) {
+                    $assignmentObj | Add-Member -NotePropertyName SSO -NotePropertyValue 'oidc' -Force -PassThru
+        
+                }
+                else {
+                    $assignmentObj | Add-Member -NotePropertyName SSO -NotePropertyValue False -Force -PassThru
+                }
+
+            }
+        }
+        $spScim = Invoke-MgGraphRequest -Method GET -Uri "https://graph.microsoft.com/v1.0/servicePrincipals/$($_.resourceId)/synchronization/jobs"
+        If ($spSCIM.value.schedule.state -eq 'Active') {
+            $assignmentObj | Add-Member -NotePropertyName SCIM -NotePropertyValue True -Force -PassThru
+        }
+        else {
+            $assignmentObj | Add-Member -NotePropertyName SCIM -NotePropertyValue False -Force -PassThru
+        }
+        
+       
+        
+    }
 }
 
-$assignemntsorted = $assignments | Sort-Object userPrincipalName -Descending | Sort-Object userPrincipalName -Descending | Select-Object UserPrincipalName, DisplayName, officeLocation, jobTitle, assignmentType, GroupDisplayName, resourceDisplayName, resourceID, SSO, Provisioning 
+$assignemntsorted = $assignments | Sort-Object userPrincipalName -Descending | Sort-Object userPrincipalName -Descending | Select-Object UserPrincipalName, DisplayName, officeLocation, jobTitle, assignmentType, GroupDisplayName, resourceDisplayName, resourceID, SSO, SCIM 
 
 #Getting all groupmemeberships for user
 
@@ -175,4 +220,4 @@ $groups = $eusers | Foreach-Object {
 $groupssorted = $groups | Sort-object userprincipalName -Descending | Select-Object UserPrincipalName, DisplayName, officeLocation, jobTitle, GroupDisplayName, groupTypes, GroupDescription, mailenabled, Securityenabled, membershipRule 
 
 $assignemntsorted | Export-Excel -path $savepath -TableStyle Medium2 -WorksheetName ApplicationAssignments -AutoSize
-$groupssorted | Export-Excel -path $savepath -WorksheetName DynamicGroupAssignments  -show
+$groupssorted | Export-Excel -path $savepath -WorksheetName DynamicGroupAssignments -TableStyle Medium3  -AutoSize -show
