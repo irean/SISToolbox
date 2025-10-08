@@ -90,7 +90,7 @@ $date = Get-Date -format yyyy-MM-dd
 #Get organization name and remove any spaces in name
 $org = (Igall "https://graph.microsoft.com/v1.0/organization" | Select-Object -ExpandProperty displayName) -replace ' ', ''
 #save file location
-Write-Host "If nothing seems to happen, please check if a pop-up window is hidden behind other open windows." -ForegroundColor Red
+Write-Host "Select folder to save file. If nothing seems to happen, please check if a pop-up window is hidden behind other open windows." -ForegroundColor Red
 Add-Type -AssemblyName System.Windows.Forms
 $FileBrowser = New-Object System.Windows.Forms.FolderBrowserDialog -Property @{ 
     InitialDirectory = [Environment]::GetFolderPath('Desktop') 
