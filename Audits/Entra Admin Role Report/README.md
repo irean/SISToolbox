@@ -47,6 +47,9 @@ The resulting report includes:
   - `RoleEligibilitySchedule.Read.Directory`
   - `RoleManagement.Read.All`
   - `AuditLog.Read.All`
+- Reader roles to both Entra ID and Azure Subscriptions:
+  - `Global Reader`
+  - `Az Reader Role`
 
 > ⚠️ **Note:** The script uses the Microsoft Graph **beta endpoint**, which may be subject to change.
 

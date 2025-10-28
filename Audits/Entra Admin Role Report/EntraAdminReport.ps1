@@ -1,4 +1,5 @@
-
+  [CmdletBinding()]
+  param()
 #helper method to manager fething paged results
 function igall {
     [CmdletBinding()]
@@ -7,7 +8,11 @@ function igall {
     )
     $nextUri = $uri
     do {
+        $result = $null
+    $time = Measure-Command { 
         $result = Invoke-MgGraphRequest -Method GET -Uri $nextUri
+    }
+    Write-Debug "callto $nextURI took $time"
         $nextUri = $result.'@odata.nextLink'
         if ($result -and $result.ContainsKey('value')) {
             $result.value
@@ -103,8 +108,12 @@ else {
     Write-Host "❌ No folder selected. Exiting script." -ForegroundColor Red
     return
 }
+Write-Host "Caching All Users" -ForegroundColor Cyan
 
-
+igall "https://graph.microsoft.com/beta/users?`$select=Displayname%2CUserprincipalname%2CcompanyName%2CaccountEnabled%2CCreatedDatetime%2CLastPasswordChangeDateTime%2csignInActivity%2clastNonInteractiveSignInDateTime%2clastSignInDateTime" | Foreach-Object {
+    $cache.add($_.id,$_)
+}
+Write-Host "✅ Retrieved all users" -ForegroundColor Green
 #Get org displayname
 Write-Host "Fetching organization display name..." -ForegroundColor Yellow
 $orgdisplayname = igall https://graph.microsoft.com/beta/organization | Select-Object -ExpandProperty displayName
