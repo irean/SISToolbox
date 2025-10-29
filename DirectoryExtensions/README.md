@@ -1,50 +1,112 @@
-## Directory Extension Functions
+# Directory Extension Utility for Entra ID
 
-The main purpose is to create data extensions that are disoverable and filterabel through out the tenant. There are however a few limitations like 100 extensions and problem to find extensions from applications that were accidently deleted. 
+This PowerShell module provides a set of helper functions to **verify module availability**, **connect to Microsoft Graph**, and **create or inspect custom directory extensions** in Entra ID (formerly Azure AD).
 
-More information can be found here https://learn.microsoft.com/en-us/graph/extensibility-overview?tabs=http
+---
 
-### Define Directory Extension
+## Helper Functions Overview
 
-1. Create an app registration
-    1. Go to Azure AD -> App Registrations -> Create new
-    1. Add permissions "user.readwrite.all" , "directory.read.all" as application
-1. Create the Directory Extension
-   1.  Connect to MgGraph with scopes application.readwrite.all
-    2. in Repository download PowerShell Script directoryextensions.ps1
-    3. Run file  in __Powershell 7__
-    4. Run function __Create-DirectoryExtensionCreation -ApplicationObjectID__ _<the objectID of the application you created in step 1>_ __-nameofextension__ _< the name you want to use >_
-2. Add value to the new extension from logic apps, scripts and more 
+### 1. `Test-Module`
 
-#### Example
+**Purpose:**  
+Ensures that a required PowerShell module is installed and imported before running dependent functions.
+
+**Features:**
+- Checks if the module is already loaded.  
+- Tries to import it automatically if not.  
+- Installs it from PowerShell Gallery if missing.  
+- Provides verbose, friendly console output for debugging.  
+- Handles long import times for large modules like `Microsoft.Graph` and `Az`.
+
+**Usage Example:**
+```powershell
+Test-Module -Name Microsoft.Graph.Authentication
+```
+## Functions Overview
+### 1. `New-DirectoryExtensionForUser`
+
+####  Purpose
+Creates a **custom directory extension** (schema extension) on an Entra ID (Azure AD) application object.  
+This is useful for storing additional user metadata that isn’t part of the default schema — for example, `UserPurpose`, `EmployeeType`, or `HRCode`.
+
+####  Required Permissions
+- **Delegated Microsoft Graph scopes:** `Application.ReadWrite.All`
+- **Entra ID Roles:**  
+  - Application Administrator  
+  - Cloud Application Administrator  
+  - Global Administrator  
+
+#### Parameters
+| Name | Type | Required | Description |
+|------|------|-----------|-------------|
+| `ApplicationObjectID` | String | ✅ | The Object ID of the registered application to attach the directory extension to. |
+| `NameOfExtension` | String | ✅ | The name of your directory extension (e.g. `UserPurpose`). |
+
+#### Usage Example
+```powershell
+New-DirectoryExtensionForUser `
+  -ApplicationObjectID "11111111-2222-3333-4444-555555555555" `
+  -NameOfExtension "UserPurpose"
+  ```
+
+### 2. `Get-DirectoryExtensions`
+
+#### Purpose
+Retrieves all **directory (schema) extensions** registered on one or more Entra ID (Azure AD) applications.  
+If an application display name is provided, only that app’s extensions are returned.  
+If omitted, it enumerates all applications in the tenant and lists their extensions.
+
+---
+
+#### Required Permissions
+**Microsoft Graph delegated scopes:**
+- `Application.Read.All`
+
+**Entra ID roles (any of the following):**
+- Application Administrator  
+- Cloud Application Administrator  
+- Global Reader  
+
+---
+
+#### Parameters
+
+| Name | Type | Required | Description |
+|------|------|-----------|-------------|
+| `AppDisplayName` | String | ❌ | The display name of the Entra ID application. If omitted, retrieves extensions from all applications. |
+
+---
+
+#### Examples
+
+```powershell
+# Retrieve directory extensions for a specific app
+Get-DirectoryExtensions -AppDisplayName "Custom Identity App"
+
+# Retrieve all directory extensions from every registered app
+Get-DirectoryExtensions
 
 ```
-PS C:\Code\GitHub\reports> Create-DirectoryExtensionCreation -ApplicationObjectID -nameofextension UserPurposeExtension
+### 3. `Get-DirectoryExtensionValues`
 
+Fetches the values of a specific **directory extension** (custom schema attribute) for one or all Entra ID users.
+
+---
+
+#### Description
+
+This function queries **Microsoft Graph** to read user attributes that were created as **directory extensions**  
+(e.g., `extension_<AppId>_HRCode`, `extension_<AppId>_EmployeeType`).
+
+You can use it to:
+- Retrieve the value of an extension for a **specific user**.
+- Retrieve all users’ values for auditing or reporting.
+
+---
+
+#### Syntax
+
+```powershell
+Get-DirectoryExtensionValues -DirectoryExtensionName <String> [-UserUPN <String>]
 ```
 
-
-
-
-### List directory extensions
-
-1. Connect to tenant with applications.read.all in __Powershell 7__
-2. If not downloaded before, download and run directoryextensions.ps1 from GitHub
-3. Run function List-DirectoryExtensions
-    1. __List-DirectoryExtensions__ returns all application directory extensions
-    1. __List-DicretoryExtensions -AppDisplayname__ _< displayname of app >_  returns the chosen apps directory extensions.
-#### Example 
-
-```
-PS C:\Code\GitHub\reports> List-DirectoryExtension -AppDisplayname 'Room-attributes'
-
-Name                           Value
-----                           -----
-appDisplayName
-name                           extension_e79b8f8d3e3f4fd39f8008084c154fc8_userPurposeExtension
-id                             d9a6fdd7-b137-4304-9a1d-e9c15513a3a9
-deletedDateTime
-dataType                       String
-isSyncedFromOnPremises         False
-targetObjects                  {User}
-```
