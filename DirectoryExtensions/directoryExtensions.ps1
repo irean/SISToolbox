@@ -102,22 +102,53 @@ function Get-DirectoryExtensions {
         [String]$AppDisplayName
     )
 
-    Connect-MGgraph -scopes "Application.Read.All"
+    # Connect to Microsoft Graph
+    Connect-MgGraph -Scopes "Application.Read.All"
     Write-Host "🔍 Checking directory extensions..." -ForegroundColor Cyan
+    Write-Host ""
 
-    if ($AppDisplayname) {
-        Write-Host "Looking up extensions for application: '$AppDisplayName'..."
-        $app = Invoke-MggraphRequest -Method GET "https://graph.microsoft.com/v1.0/applications?`$Filter=displayname eq '$AppDisplayname'" | Select-Object -ExpandProperty Value | Select-OBject -Expandproperty id 
+    # This will store all extensions found
+    $results = @()
+
+    if ($AppDisplayName) {
+        Write-Host "Looking up extensions for application: '$AppDisplayName'..." -ForegroundColor Cyan
+
+        $app = Invoke-MgGraphRequest -Method GET "https://graph.microsoft.com/v1.0/applications?`$Filter=displayName eq '$AppDisplayName'" |
+                Select-Object -ExpandProperty value |
+                Select-Object -ExpandProperty id
+
         if ($app) {
-            Invoke-MgGraphRequest -Method GET "https://graph.microsoft.com/v1.0/applications/$app/extensionProperties" |
-            Select-Object -ExpandProperty value
+            $extensions = Invoke-MgGraphRequest -Method GET "https://graph.microsoft.com/v1.0/applications/$app/extensionProperties" |
+                          Select-Object -ExpandProperty value
+
+            if ($extensions) {
+                Write-Host "───────────────────────────────────────────────" -ForegroundColor DarkCyan
+                Write-Host "✅ Found extensions for $AppDisplayName" -ForegroundColor Green
+                Write-Host "───────────────────────────────────────────────" -ForegroundColor DarkCyan
+                foreach ($ext in $extensions) {
+                    Write-Host ("Name: " + $ext.name) -ForegroundColor Yellow
+                    Write-Host ("ID: " + $ext.id) -ForegroundColor Gray
+                    Write-Host ("Targets: " + ($ext.targetObjects -join ", ")) -ForegroundColor Magenta
+                    Write-Host "-----------------------------------------------" -ForegroundColor DarkGray
+
+                    $results += [PSCustomObject]@{
+                        ApplicationName = $AppDisplayName
+                        ExtensionName   = $ext.name
+                        ExtensionID     = $ext.id
+                        TargetObjects   = ($ext.targetObjects -join ", ")
+                    }
+                }
+            }
+            else {
+                Write-Host "⚠️ No extensions found for this app." -ForegroundColor DarkYellow
+            }
         }
         else {
-            Write-Host "⚠️ No application found with that name."
+            Write-Host "❌ No application found with the name '$AppDisplayName'." -ForegroundColor Red
         }
     }
     else {
-        Write-Host "No specific app provided – scanning all registered applications..."
+        Write-Host "No specific app provided – scanning all registered applications..." -ForegroundColor Yellow
         $url = "https://graph.microsoft.com/v1.0/applications"
 
         do {
@@ -125,17 +156,43 @@ function Get-DirectoryExtensions {
             $url = $response.'@odata.nextLink'
 
             foreach ($app in $response.value) {
-                Write-Host "→ Checking extensions for: $($app.displayName)"
+                Write-Host ""
+                Write-Host "→ Checking extensions for: $($app.displayName)" -ForegroundColor Cyan
+
                 $ext = Invoke-MgGraphRequest -Method GET "https://graph.microsoft.com/v1.0/applications/$($app.id)/extensionProperties"
-                $ext.value | Select-Object name, id, targetObjects
+                if ($ext.value.Count -gt 0) {
+                    Write-Host "───────────────────────────────────────────────" -ForegroundColor DarkGreen
+                    Write-Host "✅ Found $($ext.value.Count) extension(s) for $($app.displayName)" -ForegroundColor Green
+                    Write-Host "───────────────────────────────────────────────" -ForegroundColor DarkGreen
+
+                    foreach ($e in $ext.value) {
+                        Write-Host ("Name: " + $e.name) -ForegroundColor Yellow
+                        Write-Host ("ID: " + $e.id) -ForegroundColor Gray
+                        Write-Host ("Targets: " + ($e.targetObjects -join ", ")) -ForegroundColor Magenta
+                        Write-Host "-----------------------------------------------" -ForegroundColor DarkGray
+
+                        $results += [PSCustomObject]@{
+                            ApplicationName = $app.displayName
+                            ExtensionName   = $e.name
+                            ExtensionID     = $e.id
+                            TargetObjects   = ($e.targetObjects -join ", ")
+                        }
+                    }
+                }
+                else {
+                    Write-Host "⚠️ No extensions found." -ForegroundColor DarkYellow
+                }
             }
 
         } while ($url)
     }
 
+    Write-Host ""
     Write-Host "✅ Done listing directory extensions." -ForegroundColor Green
-}
 
+    # Return results for export or further use
+    return $results
+}
 <# 
 .SYNOPSIS
 Fetches values of a specific directory extension for one or all users.
