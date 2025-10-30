@@ -51,6 +51,55 @@ igall "https://graph.microsoft.com/v1.0/users" -limit 5
 
 
 
+### 3. `Show-AvailableFunctions` — List All Functions in the Script
+#### Purpose
+The `Show-AvailableFunctions` command lists all functions included in the helper script and provides a brief description for each.
+It serves as a quick reference to discover available tools and understand their purpose without opening the script file.
+
+When the script is loaded, a short message is displayed reminding users that this command is available.
+
+#### Behavior
+- Automatically lists all PowerShell functions defined in the script.
+
+- Optionally expands each function to show its inline help comment block (if available).
+
+- Displays function names in **green** and descriptions in **gray** for clarity.
+
+- The helper message automatically appears after importing or dot-sourcing the script.
+
+#### Required Permissions
+None — this function runs locally and doesn’t require Microsoft Graph access or any elevated privileges.
+
+#### Usage Exmpale
+
+```powershell
+# List all functions in the helper script
+Show-AvailableFunctions
+```
+##### Output Exmaple
+```powershell
+📜 Available Directory Extension Functions:
+
+• Get-DirectoryExtensions
+  ↳ Lists all directory extensions on one or all registered Entra ID applications.
+
+• Get-DirectoryExtensionValues
+  ↳ Fetches directory extension values for one or all users.
+
+• New-DirectoryExtensionForUser
+  ↳ Creates a custom directory extension (schema extension) in Entra ID for user objects.
+
+• Remove-ApplicationDirectoryExtension
+  ↳ Safely removes one or more extension properties from Microsoft Entra applications.
+
+• Set-DirectoryExtensionValue
+  ↳ Sets a specific directory extension value for a user in Microsoft Entra ID.
+
+• Show-AvailableFunctions
+  ↳ Lists all custom functions available in the current script and shows their brief help.
+
+Tip: Use 'Get-Help <FunctionName> -Full' to see detailed documentation.
+```
 ## Functions Overview
 ### 1. `New-DirectoryExtensionForUser` — Create a Directory Extension for Users in Entra ID
 

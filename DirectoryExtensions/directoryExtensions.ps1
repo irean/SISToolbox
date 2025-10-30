@@ -96,9 +96,47 @@ function igall {
         $count += 1
     } while ($nextUri -and ($count -lt $limit))
 }
+function Show-AvailableFunctions {
+    <#
+    .SYNOPSIS
+    Lists all custom functions available in the current script and shows their brief help.
+    .DESCRIPTION
+    Uses `Get-Command` and `Get-Help` to dynamically display each function's name and `.SYNOPSIS` line.
+    #>
+
+    Write-Host "`n📜 Available Directory Extension Functions:`n" -ForegroundColor Cyan
+
+    # Collect only your own functions (e.g. containing 'DirectoryExtension' or adjust as needed)
+    $functions = Get-Command -CommandType Function |
+                 Where-Object { $_.Name -match 'DirectoryExtension' -or $_.Name -match 'Show-AvailableFunctions' }
+
+    if (-not $functions) {
+        Write-Host "⚠️ No matching functions found." -ForegroundColor Yellow
+        return
+    }
+
+    $functions | ForEach-Object {
+        $name = $_.Name
+        # Extract .SYNOPSIS line if available
+        $synopsis = (Get-Help $name -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Synopsis -ErrorAction SilentlyContinue)
+        if (-not $synopsis) { $synopsis = "(No help available)" }
+
+        Write-Host "• $name" -ForegroundColor Green
+        Write-Host "  ↳ $synopsis" -ForegroundColor DarkGray
+        Write-Host ""
+    }
+
+    Write-Host "Tip: Use 'Get-Help <FunctionName> -Full' to see detailed documentation." -ForegroundColor Cyan
+}
+
 
 
 Test-Module -Name  Microsoft.Graph.Authentication
+
+Write-Host ""
+Write-Host "📘 Helper loaded successfully!" -ForegroundColor Green
+Write-Host "Use 'Show-AvailableFunctions' to list all available functions and their descriptions." -ForegroundColor Cyan
+Write-Host ""
 
 
 
