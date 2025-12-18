@@ -97,7 +97,7 @@ The script generates an Excel workbook named:
 | **Eligible Roles** | Contains all users and groups that are *eligible* for elevated roles through PIM. Group-based eligibilities are automatically expanded to include all members. |
 | **Azure Roles** | Lists all users, service principals, and groups with assigned Azure subscription-level roles (RBAC). Each record includes the role, scope (subscription), and object type. |
 
-### 📊 Columns
+###  Columns
 
 #### **Administrators**
 Contains all currently active directory role members.

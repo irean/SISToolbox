@@ -19,7 +19,7 @@ function igall {
         if ($result.value) {
             $result.value | ConvertTo-PSCustomObject
         }
-        elseif($result.value.count -eq 0){
+        elseif($result.value -and $result.value.GetType().FullName -match 'System.Object\[\]'){
             @()
         }
         elseif ($result) {
@@ -28,3 +28,16 @@ function igall {
         $count += 1
     } while ($nextUri -and ($count -lt $limit))
 }
+
+  function ig {
+    [CmdletBinding()]
+    param (
+      [string]$Uri
+    )
+    $result = Invoke-MgGraphRequest -Method GET -uri $uri
+    if ($result.value) {
+      $result.value | ConvertTo-PSCustomObject
+    } else {
+      $result | ConvertTo-PSCustomObject
+    }
+  }
