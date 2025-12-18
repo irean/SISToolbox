@@ -86,7 +86,7 @@ $usersPage = ig -Uri "https://graph.microsoft.com/v1.0/users?$top=50"
 - `igall` is intended for large datasets and automatically handles pagination.
 - `ig` is designed for single-page queries and is faster for smaller datasets.
 - All returned objects are processed by `ConvertTo-PSCustomObject`, allowing easy dot-notation access and pipeline operations.
-<!-- Note: ConvertTo-PSCustomObject can be found here: https://github.com/your-org/your-repo -->
+You can find `ConvertTo-PSCustomObject` in the repository: [ConvertTo-PSCustomObject Helper](https://github.com/irean/SISToolbox/tree/main/HelperFunctions/Convertto%20PsCustomObject)
 - Use `-Eventual` with `igall` for queries that need eventual consistency, such as certain `$count` queries or filtered searches.
 - The `$limit` parameter in `igall` prevents infinite loops when paging through very large datasets.
 
