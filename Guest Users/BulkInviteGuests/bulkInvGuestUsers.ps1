@@ -1,3 +1,102 @@
+function test-module {
+    [CmdletBinding()]
+    param(
+        [String]$Name
+      
+    )
+    Write-Host "Checking module $name"
+    if (-not (Get-Module $Name)) {
+        Write-Host "Module $Name not imported, trying to import"
+        try {
+            if ($Name -eq 'Microsoft.Graph') {
+                Write-Host "Microsoft.Graph module import takes a while"
+                Import-Module $Name  -ErrorAction Stop
+            }
+            elseif ($Name -eq 'Az') {
+                Write-Host "Module Az is being imported. This might take a while"
+            }
+            else {
+                Import-Module $Name  -ErrorAction Stop
+            }
+            
+        }
+        catch {
+            Write-Host "Module $Name not found, trying to install"
+            Install-Module $Name -Scope CurrentUser -AllowClobber -Force -AcceptLicense -SkipPublisherCheck
+            Write-Host "Importing module  $Name "
+            Import-Module $Name  -ErrorAction stop 
+    
+        }
+    } 
+    else {
+        Write-Host "Module $Name is imported"
+    }   
+}
+function ConvertTo-PSCustomObject {
+    [CmdletBinding()]
+    param (
+        [Parameter(ValueFromPipeline = $true, Mandatory = $true)]
+        [System.Collections.Hashtable] $InputObject
+    )
+    Process {
+        if ( $InputObject) {
+            $o = New-Object psobject
+            foreach ($key in $InputObject.Keys) {
+                $value = $InputObject[$key]
+                if ($value -and $value.GetType().FullName -match 'System.Object\[\]') {
+                    if ($value.Count -gt 0 -and $value[0].GetType().FullName -match 'System.Collections.Hashtable') {
+                        $tempVal = $value | ConvertTo-PSCustomObject
+                        Add-Member -InputObject $o -NotePropertyName $key -NotePropertyValue $tempVal
+                    }
+                    elseif ($value.Count -gt 0 -and $value[0].GetType().FullName -match 'System.String') {
+                        $tempVal = $value | ForEach-Object { $_ }
+                        Add-Member -InputObject $o -NotePropertyName $key -NotePropertyValue $tempVal
+                    }
+                }
+                elseif ($value -and $value.GetType().FullName -match 'System.Collections.Hashtable') {
+                    Add-Member -InputObject $o -NotePropertyName $key -NotePropertyValue (ConvertTo-PSCustomObject -InputObject $value)
+                }
+                else {
+                    Add-Member -InputObject $o -NotePropertyName $key -NotePropertyValue $value
+                }
+            }
+
+            Write-Output $o
+        }
+    }
+}
+
+function igall {
+    [CmdletBinding()]
+    param (
+        [string]$Uri,
+        [switch]$Eventual,
+        [int]$limit = 1000
+    )
+    $nextUri = $uri
+    $count = 0
+    $headers = @{
+        Accept = 'application/json'
+    }
+    if ($Eventual) {
+        $headers.Add('ConsistencyLevel', 'eventual')
+    }
+    do {
+        $result = Invoke-MgGraphRequest -Method GET -uri $nextUri -Headers $headers
+        $nextUri = $result.'@odata.nextLink'
+        if ($result.value) {
+            $result.value | ConvertTo-PSCustomObject
+        }
+        elseif ($result.value -and $result.value.GetType().FullName -match 'System.Object\[\]') {
+            @()
+        }
+        elseif ($result) {
+            $result | ConvertTo-PSCustomObject
+        }
+        $count += 1
+    } while ($nextUri -and ($count -lt $limit))
+}
+
 function Select-FolderPath {
     [CmdletBinding()]
     param()
@@ -42,7 +141,7 @@ function Select-FolderPath {
 function Select-FilePath {
     [CmdletBinding()]
     param(
-        [string]$Title  = "Select a file",
+        [string]$Title = "Select a file",
         [string]$Filter = "All files (*.*)|*.*"
     )
 
@@ -86,67 +185,197 @@ function Select-FilePath {
         [string] The selected file path, or $null if cancelled.
     #>
 }
+Write-Host "Starting guest onboarding script..." -ForegroundColor Cyan
 
-connect-mggraph -scope "user.invite.all", "user.readwrite.all"
+Write-Host "Checking Microsft Graph Authentication"
+Test-Module -name Microsoft.Graph.Authentication
+Write-Host "Checking module Import Excel"
+test-module -name ImportExcel 
 
-$filepath = Select-FilePath -Title "Select excelfil with user emails" -Filter '*.xlsx'
+Write-Host "Connecting to Microsoft Graph..." -ForegroundColor Cyan
 
-$users =  Import-Excel -path $filepath
+connect-mggraph -scope "user.invite.all", "user.readwrite.all", "Organization.Read.All"
+Write-Host "Checking Microsoft Graph connection context..." -ForegroundColor Cyan
+$c = Get-MgContext
+if ($c) {
+    Write-Host "Microsoft Graph context found." -ForegroundColor Green
+    Write-Host "Retrieving organization information..." -ForegroundColor Cyan
+    $o = Igall "https://graph.microsoft.com/v1.0/organization"
+    $dipslayname = $o.displayName
 
-$users | Foreach-Object {
-$mail = $_.mail
-$givenName = $_.givenName
-$surName = $_.surName
-$companyName = $_.companyname
+    Write-Host "Connected Organization: $dipslayName" -ForegroundColor Yellow
+    Write-Host "Prompting for tenant confirmation..." -ForegroundColor Cyan
 
-$params = @{
+    $choice = Read-Host "You are connected to $dipslayName, do you want to add your guest here Y/Yes| N/No"
+    if ($choice -match '^(y|yes)$') {
+        Write-Host "User confirmed correct organization. Continuing..." -ForegroundColor Green
+        Write-Host "Opening file picker for Excel input..." -ForegroundColor Cyan
 
-    invitedUserEmailAddress = "$mail"
-    inviteRedirectUrl       = "https://portal.office.com"
- 
+        $filepath = Select-FilePath -Title "Select excelfil with user emails" -Filter "Excel (*.xlsx)|*.xlsx"
+        Write-Host "Excel file selected: $filepath" -ForegroundColor Green
+
+    }
+    else {
+        Write-Host "User chose not to continue. Disconnecting from Microsoft Graph." -ForegroundColor Yellow
+        Disconnect-MgGraph
+        return
+        
+
+    }
+}
+else {
+    Write-Host "No Microsoft Graph context found. Script cannot continue." -ForegroundColor Red
 }
 
-$guest = Invoke-MggraphRequest -method POST -uri "https://graph.microsoft.com/v1.0/invitations" -ContentType "application/json" -Body $params 
+
+#Import all users
+Write-Host "Importing users from Excel file..." -ForegroundColor Cyan
+$excelUsers = Import-Excel -path $filepath
+Write-Host "Excel import completed." -ForegroundColor Green
 
 
+$excelUsers | ForEach-Object {
 
-$guest | Foreach-Object {
-    $id = $_.invitedUser.ID
-    $max = 10
-    $delay = 3
+    $excelUser = $_
+    $mail = $_.mail
+   
+    Write-Host "----------------------------------------" -ForegroundColor DarkGray
+    Write-Host "Processing user: $mail" -ForegroundColor Cyan
 
-    Write-host "$id"
+    # Build body
+    Write-Host "Building request body from Excel attributes..." -ForegroundColor DarkGray
+    $exclude = @('mail')
+    $body = @{}
 
-    for ($i = 1; $i -le $max; $i++) {
+    foreach ($prop in $excelUser.PSObject.Properties) {
+        if ($exclude -notcontains $prop.Name -and
+            $null -ne $prop.Value -and
+            $prop.Value -ne '') {
+            Write-Host "   Adding attribute '$($prop.Name)'" -ForegroundColor DarkGray
+            $body[$prop.Name] = $prop.Value
+        }
+    }
+    Write-Host "Body contains $($body.Count) attributes" -ForegroundColor DarkGray
+ Add-Member -InputObject $excelUser -NotePropertyName Status -NotePropertyValue 'Processing' -Force
+    Add-Member -InputObject $excelUser -NotePropertyName ErrorStep -NotePropertyValue $null -Force
+    Add-Member -InputObject $excelUser -NotePropertyName ErrorMessage -NotePropertyValue $null -Force
+    Add-Member -InputObject $excelUser -NotePropertyName UserId -NotePropertyValue $null -Force
+
+    # Check if user exists
+    Write-Host "Checking if user exists in tenant..." -ForegroundColor DarkGray
+    $existingUser = igall "https://graph.microsoft.com/v1.0/users?`$filter=mail eq '$mail'" 
+    
+
+    if ($existingUser.mail -and $existingUser.Count -gt 0 -and $existingUser[0].id) {
+
+        $id = $existingUser[0].id
+        $excelUser.UserId = $id
+        $excelUser.Status = 'Updated'
+        Write-Host "User already exists. UserId: $id" -ForegroundColor Yellow
+    }
+    else {
+        Write-Host "User not found. Sending invitation..." -ForegroundColor Yellow
+
+        $params = @{
+            invitedUserEmailAddress = $mail
+            inviteRedirectUrl       = "https://portal.office.com"
+        }
+        Write-Host "Inviting guest user..." -ForegroundColor DarkGray
 
         try {
-            $user = igall "https://graph.microsoft.com/v1.0/users/$id"
-                    if ($user) {
-            Write-host "User avail after $i attempts"
+            $guest = Invoke-MgGraphRequest `
+                -Method POST `
+                -Uri "https://graph.microsoft.com/v1.0/invitations" `
+                -ContentType "application/json" `
+                -Body $params
 
-            $body = @{
-                givenName   = "Sandra"
-                surName     = "Saluti"
-                companyName = "Epical"
-            }
-
-            Invoke-MggraphRequest -method PATCH -uri "https://graph.microsoft.com/v1.0/users/$id" -contentType application/json -Body $body
-            break
-        
-        }
-
+            $id = $guest.invitedUser.id
+            $excelUser.UserId = $id
+            $excelUser.Status = 'Invited'
+            $wasInvited = $true
+            Write-Host "Invitation sent. Guest userId: $id" -ForegroundColor Yellow
         }
         catch {
-            Start-Sleep -Seconds $delay 
+            $excelUser.Status = 'Failed'
+            $excelUser.ErrorStep = 'Invite'
+            $excelUser.ErrorMessage = $_.Exception.Message
+            return
         }
-
-
 
 
     }
 
+    # Retry ONLY if user was invited
+    if ($wasInvited) {
+        Write-Host "Waiting for invited user to become available in directory..." -ForegroundColor DarkGray
+
+        $max = 10
+        $delay = 3
+
+        for ($i = 1; $i -le $max; $i++) {
+            try {
+                Write-Host "Attempt $i of $max to resolve user..." -ForegroundColor DarkGray
+                $graphUser = igall "https://graph.microsoft.com/v1.0/users/$id"
+                if ($graphUser) {
+                    Write-Host "User is now available after $i attempts" -ForegroundColor Green
+                    break
+                }
+            }
+            catch {
+                Write-Host "User not yet available. Waiting $delay seconds..." -ForegroundColor DarkGray
+                Start-Sleep -Seconds $delay
+            }
+        }
+    }
+    if (-not $id) {
+        Write-Host "❌ No user ID resolved for $mail – skipping update" -ForegroundColor Red
+        $excelUser.Status = 'Skipped'
+        $excelUser.ErrorStep = 'Retry'
+        $excelUser.ErrorMessage = 'User not available after invitation'
+        return
+
+        
+    }
+
+    # Update (always happens) 
+    Write-Host "Updating user with ID: $id" -ForegroundColor Cyan
+
+    try {
+            
+        Invoke-MgGraphRequest `
+            -Method PATCH `
+            -Uri "https://graph.microsoft.com/v1.0/users/$id" `
+            -ContentType "application/json" `
+            -Body $body
+
+            
+        if ($excelUser.Status -eq 'Invited') {
+            $excelUser.Status = 'Success'
+            Write-Host "Update request sent for user $mail" -ForegroundColor Green
+        }
+
+        
+    }
+    catch {
+        $excelUser.Status = 'Failed'
+        $excelUser.ErrorStep = 'Update'
+        $excelUser.ErrorMessage = $_.Exception.Message
+    }
+
+
 }
-}
+$excelUsers | Export-Excel `
+    -Path "$($filepath.Replace('.xlsx','_result.xlsx'))" `
+    -AutoSize `
+    -TableName GuestOnboardingResults
+
+
+Write-Host "===================================" -ForegroundColor DarkGray
+Write-Host "✔ Output file created" -ForegroundColor Green
+Write-Host "$($filepath.Replace('.xlsx','_result.xlsx'))" -ForegroundColor Cyan
+Write-Host "===================================" -ForegroundColor DarkGray
+
+
 
 
 
