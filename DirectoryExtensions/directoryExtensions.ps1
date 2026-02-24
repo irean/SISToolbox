@@ -108,7 +108,7 @@ function Show-AvailableFunctions {
 
     # Collect only your own functions (e.g. containing 'DirectoryExtension' or adjust as needed)
     $functions = Get-Command -CommandType Function |
-                 Where-Object { $_.Name -match 'DirectoryExtension' -or $_.Name -match 'Show-AvailableFunctions' }
+    Where-Object { $_.Name -match 'DirectoryExtension' -or $_.Name -match 'Show-AvailableFunctions' }
 
     if (-not $functions) {
         Write-Host "⚠️ No matching functions found." -ForegroundColor Yellow
@@ -142,10 +142,16 @@ Write-Host ""
 
 function New-DirectoryExtensionForUser {
     param (
-        [Parameter()]
+        [Parameter(Mandatory=$true)]
         [String]$ApplicationObjectID,
-        [Parameter()]
-        [String]$nameofextension
+        [Parameter(Mandatory=$true)]
+        [String]$nameofextension,
+        [Validateset(
+            'String', 'Binary', 'Boolean', 'DateTime', 'Integer', 'LargeInteger'
+        )]
+        [Parameter(Mandatory=$true)]
+        [String]$dataType
+
     )
     $context = Get-MgContext -ErrorAction SilentlyContinue
     if (-not $context) {
@@ -168,7 +174,7 @@ function New-DirectoryExtensionForUser {
 
     $body = @{
         name          = $nameofextension
-        datatype      = "String"
+        datatype      = $dataType
         targetObjects = @(
             "User"
         )
@@ -238,7 +244,7 @@ function Get-DirectoryExtensions {
         $app = Invoke-MgGraphRequest -Method GET "https://graph.microsoft.com/v1.0/applications?`$filter=displayName eq '$AppDisplayName'" |
         Select-Object -ExpandProperty value |
         Select-Object -ExpandProperty id
-        $appID = $app.id
+  
 
         if ($app) {
             $extensions = Invoke-MgGraphRequest -Method GET "https://graph.microsoft.com/v1.0/applications/$app/extensionProperties" |
@@ -257,10 +263,11 @@ function Get-DirectoryExtensions {
 
                     $results += [PSCustomObject]@{
                         ApplicationName = $AppDisplayName
-                        ApplicationID   = $appID
+                        ApplicationID   = $app
                         ExtensionName   = $_.name
                         ExtensionID     = $_.id
                         TargetObjects   = ($_.targetObjects -join ", ")
+                        dataType        = $_.dataType
                     }
                 }
             }
@@ -350,7 +357,7 @@ function Get-DirectoryExtensionValues {
     )
 
     #Connecting MgGraph 
-       $context = Get-MgContext -ErrorAction SilentlyContinue
+    $context = Get-MgContext -ErrorAction SilentlyContinue
     if (-not $context) {
         Write-Host "🔗 Not connected to Microsoft Graph. Connecting with required scope..." -ForegroundColor Cyan
         Connect-MgGraph -Scopes "User.Read.All"
@@ -368,11 +375,11 @@ function Get-DirectoryExtensionValues {
         }
     }
 
-     $results = @()
+    $results = @()
     if ($UserUPN) {
         Write-Host "👤 Getting extension values for user $UserUPN..." -ForegroundColor Cyan
         $user = igall "https://graph.microsoft.com/beta/users/$UserUPN"
-       if ($DirectoryExtensionName) {
+        if ($DirectoryExtensionName) {
             $value = $user.$DirectoryExtensionName
             if ($null -ne $value) {
                 $results += [PSCustomObject]@{
@@ -383,7 +390,7 @@ function Get-DirectoryExtensionValues {
                 }
             }
         }
-         else {
+        else {
             $user.PSObject.Properties |
             Where-Object { $_.Name -like "extension_*" -and $null -ne $_.Value } |
             ForEach-Object {
@@ -398,43 +405,43 @@ function Get-DirectoryExtensionValues {
     }
     else {
         Write-Host "📋 No user specified — retrieving directory extension values for all users (this may take a while)..." -ForegroundColor Yellow
-       $users = Igall  "https://graph.microsoft.com/beta/users"
+        $users = Igall  "https://graph.microsoft.com/beta/users"
         
-$users | Foreach-Object {
-    $user = $_
-    if ($DirectoryExtensionName) {
-                    $value = $user.$DirectoryExtensionName
-                    if ($null -ne $value) {
-                        $results += [PSCustomObject]@{
-                            DisplayName       = $user.displayName
-                            UserPrincipalName = $user.userPrincipalName
-                            ExtensionName     = $DirectoryExtensionName
-                            ExtensionValue    = $value
-                        }
-                    }
-                }
-                else {
-                    $user.PSObject.Properties |
-                    Where-Object { $_.Name -like "extension_*" -and $null -ne $_.Value } |
-                    ForEach-Object {
-                        $results += [PSCustomObject]@{
-                            DisplayName       = $user.displayName
-                            UserPrincipalName = $user.userPrincipalName
-                            ExtensionName     = $_.Name
-                            ExtensionValue    = $_.Value
-                        }
+        $users | Foreach-Object {
+            $user = $_
+            if ($DirectoryExtensionName) {
+                $value = $user.$DirectoryExtensionName
+                if ($null -ne $value) {
+                    $results += [PSCustomObject]@{
+                        DisplayName       = $user.displayName
+                        UserPrincipalName = $user.userPrincipalName
+                        ExtensionName     = $DirectoryExtensionName
+                        ExtensionValue    = $value
                     }
                 }
             }
-}
+            else {
+                $user.PSObject.Properties |
+                Where-Object { $_.Name -like "extension_*" -and $null -ne $_.Value } |
+                ForEach-Object {
+                    $results += [PSCustomObject]@{
+                        DisplayName       = $user.displayName
+                        UserPrincipalName = $user.userPrincipalName
+                        ExtensionName     = $_.Name
+                        ExtensionValue    = $_.Value
+                    }
+                }
+            }
+        }
+    }
 
 
         
 
-        Write-Host "✅ Finished collecting extension values." -ForegroundColor Green
-        return $results
+    Write-Host "✅ Finished collecting extension values." -ForegroundColor Green
+    return $results
 
- <#
+    <#
     .SYNOPSIS
     Fetches directory extension values for one or all users.
 
@@ -538,24 +545,24 @@ function Remove-ApplicationDirectoryExtension {
 
     begin {
         #Connecting MgGraph 
-    $context = Get-MgContext -ErrorAction SilentlyContinue
-    if (-not $context) {
-        Write-Host "🔗 Not connected to Microsoft Graph. Connecting with required scope..." -ForegroundColor Cyan
-        Connect-MgGraph -Scopes "Application.ReadWrite.All"
-    }
-    else {
-        $scopes = $context.Scopes
-        if ('Application.ReadWrite.All' -notin $scopes) {
-            Write-Host "⚠️ Current Graph session does not include required scope 'Application.ReadWrite.All'." -ForegroundColor Yellow
-            Write-Host "🔁 Reconnecting with proper permissions..." -ForegroundColor Cyan
-            Disconnect-MgGraph | Out-Null
+        $context = Get-MgContext -ErrorAction SilentlyContinue
+        if (-not $context) {
+            Write-Host "🔗 Not connected to Microsoft Graph. Connecting with required scope..." -ForegroundColor Cyan
             Connect-MgGraph -Scopes "Application.ReadWrite.All"
         }
         else {
-            Write-Host "✅ Connected to Microsoft Graph with scope 'Application.ReadWrite.All'." -ForegroundColor Green
+            $scopes = $context.Scopes
+            if ('Application.ReadWrite.All' -notin $scopes) {
+                Write-Host "⚠️ Current Graph session does not include required scope 'Application.ReadWrite.All'." -ForegroundColor Yellow
+                Write-Host "🔁 Reconnecting with proper permissions..." -ForegroundColor Cyan
+                Disconnect-MgGraph | Out-Null
+                Connect-MgGraph -Scopes "Application.ReadWrite.All"
+            }
+            else {
+                Write-Host "✅ Connected to Microsoft Graph with scope 'Application.ReadWrite.All'." -ForegroundColor Green
+            }
         }
     }
-}
 
     process {
         $ApplicationId | ForEach-Object {
