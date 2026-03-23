@@ -175,9 +175,9 @@ function Get-AdminRiskScore {
         }
     }
     # Service Principals
-    if ($assignment.ObjectType -eq "ServicePrincipal" -and $riskScore -ge 8) {
-    $riskScore += 5
-}
+    if ($User.ObjectType -eq "ServicePrincipal" -and $score -ge 8) {
+        $score += 5
+    }
 
     return $score
 }
@@ -480,7 +480,7 @@ $eligible = igall -Uri 'https://graph.microsoft.com/beta/roleManagement/director
             Write-Host "✅ Finished expanding group $($e.principal.displayName) ($total members)" -ForegroundColor Green
         }
     }
-} |  Select-Object displayName, Userprincipalname, EligibleRole, DirectRole, EligibleRoleGroup, memberType, AdminRiskScore, AdminRiskLevel, createdDateTime, LastPasswordChangeDateTime, lastSignInDateTime, hasStrongMFA, StrongAuthCount, AuthPassword, AuthPhone, AuthFido2, AuthPasswordless, AuthMicrosoftAuthenticator, IsLicensed
+} |  Select-Object id, displayName, Userprincipalname, EligibleRole, DirectRole, EligibleRoleGroup, memberType, AdminRiskScore, AdminRiskLevel, createdDateTime, LastPasswordChangeDateTime, lastSignInDateTime, hasStrongMFA, StrongAuthCount, AuthPassword, AuthPhone, AuthFido2, AuthPasswordless, AuthMicrosoftAuthenticator, IsLicensed
 Write-Host "✅ Finished collecting all eligible role assignments." -ForegroundColor Green
 Write-Host "Fetching Azure role assignments..." -ForegroundColor Yellow
 $azroles = Get-AzSubscription | ForEach-Object {
@@ -528,54 +528,292 @@ $azroles = Get-AzSubscription | ForEach-Object {
     }
 
 } | Select-Object roleDefinitionName, displayname, SigninName, ObjectId, ObjectType, AssignmentSource, Subscription, AdminRiskScore, AdminRiskLevel, IsLicensed, ProductivityServicesEnabled
-# ----------------------------------------------------
-# Summary metrics
-# ----------------------------------------------------
 
-$criticalAdmins = ($administrators | Where-Object AdminRiskLevel -eq "Critical").Count
-$highAdmins     = ($administrators | Where-Object AdminRiskLevel -eq "High").Count
-$mediumAdmins   = ($administrators | Where-Object AdminRiskLevel -eq "Medium").Count
-$lowAdmins      = ($administrators | Where-Object AdminRiskLevel -eq "Low").Count
 
-$totalAdmins = $administrators.Count
-
-$noMFAAdmins = ($administrators | Where-Object { -not $_.hasStrongMFA }).Count
-
-$productivityAdmins = ($administrators | Where-Object ProductivityServicesEnabled).Count
-
-$inactiveAdmins = ($administrators | Where-Object {
-    $_.lastSignInDateTime -and
-    [datetime]$_.lastSignInDateTime -lt (Get-Date).AddDays(-90)
-}).Count
-
-$topRiskAdmins = $administrators |
-Group-Object UserPrincipalName |
-ForEach-Object {
-    $_.Group | Sort-Object AdminRiskScore -Descending | Select-Object -First 1
-} |
-Sort-Object AdminRiskScore -Descending |
-Select-Object -First 10 displayName, UserPrincipalName, Role, AdminRiskScore, AdminRiskLevel
 
 
 
 Write-Host "✅ Azure role assignments gathered." -ForegroundColor Green
+
+$exportPath = "$folder\$orgdisplayname-EntraIDAdminReport$date.xlsx"
+if (Test-Path $exportPath) {
+    Write-Host "Removing existing report..." -ForegroundColor Yellow
+    Remove-Item $exportPath -Force
+}
+$allAdmins = @()
+
+# -------------------------
+# Administrators
+# -------------------------
+$allAdmins += $administrators | ForEach-Object {
+    [PSCustomObject]@{
+        UserPrincipalName           = $_.UserPrincipalName
+        ObjectId                    = $_.Id
+        displayName                 = $_.displayName
+        Role                        = $_.Role
+        Source                      = "Active"
+        hasStrongMFA                = $_.hasStrongMFA
+        AdminRiskScore              = $_.AdminRiskScore
+        AdminRiskLevel              = $_.AdminRiskLevel
+        lastSignInDateTime          = $_.lastSignInDateTime
+        ProductivityServicesEnabled = $_.ProductivityServicesEnabled
+    }
+}
+
+# -------------------------
+# Eligible Roles
+# -------------------------
+$allAdmins += $eligible | ForEach-Object {
+    [PSCustomObject]@{
+        UserPrincipalName           = $_.UserPrincipalName
+        ObjectId                    = $_.Id
+        Role                        = $_.EligibleRole
+        Source                      = "Eligible"
+        hasStrongMFA                = $_.hasStrongMFA
+        AdminRiskScore              = $_.AdminRiskScore
+        AdminRiskLevel              = $_.AdminRiskLevel
+        lastSignInDateTime          = $_.lastSignInDateTime
+        ProductivityServicesEnabled = $_.ProductivityServicesEnabled
+    }
+}
+
+# -------------------------
+# Azure Roles
+# -------------------------
+$allAdmins += $azroles | Where-Object ObjectType -eq "User" | ForEach-Object {
+    [PSCustomObject]@{
+        UserPrincipalName           = $_.SignInName
+        ObjectId                    = $_.ObjectId
+        Role                        = $_.RoleDefinitionName
+        Source                      = "Azure"
+        hasStrongMFA                = $false
+        AdminRiskScore              = $_.AdminRiskScore
+        AdminRiskLevel              = $_.AdminRiskLevel
+        lastSignInDateTime          = $null
+        ProductivityServicesEnabled = $false
+    }
+}
+
+# -------------------------
+# CLEAN + DEDUPE (INCLUDED!)
+# -------------------------
+$topRiskAdmins = $allAdmins |
+Where-Object { 
+    $_.displayName -and 
+    $_.displayName.Trim() -ne ""
+} |
+Sort-Object AdminRiskScore -Descending |
+Select-Object -First 10 displayName, Role, AdminRiskScore, AdminRiskLevel
+$topRiskAdmins = $topRiskAdmins | Sort-Object AdminRiskScore -Descending
+
+
+$allAdmins = $allAdmins |
+Where-Object { $_ -and $_.UserPrincipalName } |
+Group-Object ObjectId |
+ForEach-Object {
+    $_.Group | Sort-Object AdminRiskScore -Descending | Select-Object -First 1
+}
+
+
+# ----------------------------------------------------
+# Summary metrics
+# ----------------------------------------------------
+$totalAdmins = $allAdmins.Count
+
+$criticalAdmins = ($allAdmins | Where-Object { $_.AdminRiskLevel -eq "Critical" }).Count
+$highAdmins = ($allAdmins | Where-Object { $_.AdminRiskLevel -eq "High" }).Count
+$mediumAdmins = ($allAdmins | Where-Object { $_.AdminRiskLevel -eq "Medium" }).Count
+$lowAdmins = ($allAdmins | Where-Object { $_.AdminRiskLevel -eq "Low" }).Count
+
+$noMFAAdmins = ($allAdmins | Where-Object { -not $_.hasStrongMFA }).Count
+
+$inactiveAdmins = ($allAdmins | Where-Object {
+        $_.lastSignInDateTime -and
+        [datetime]$_.lastSignInDateTime -lt (Get-Date).AddDays(-90)
+    }).Count
+
+$productivityAdmins = ($allAdmins | Where-Object {
+        $_.ProductivityServicesEnabled -eq $true
+    }).Count
+
+
+$allAdmins | Export-Excel `
+    -Path $exportPath `
+    -WorksheetName "All Admins" `
+    -TableName AllAdminsTable `
+    -AutoSize `
+
+
+
+# MFA DATA
+$mfaStatuses = @("Strong MFA", "No MFA")
+
+$mfaTable = foreach ($status in $mfaStatuses) {
+
+    if ($status -eq "Strong MFA") {
+        $count = ($allAdmins | Where-Object { $_.hasStrongMFA }).Count
+    }
+    else {
+        $count = ($allAdmins | Where-Object { -not $_.hasStrongMFA }).Count
+    }
+
+    [PSCustomObject]@{
+        MFAStatus = $status
+        Count     = $count
+    }
+}
+$mfaTable | Export-Excel `
+    -Path $exportPath `
+    -WorksheetName "MFA Data" `
+    -TableName 'MfaTable' `
+    -AutoSize `
+    -Append
+
+# ----------------------------
+# Risk Data
+# -----------------------------
+
+$riskLevels = @("Critical", "High", "Medium", "Low")
+
+$riskTable = @(
+    foreach ($level in $riskLevels) {
+
+        $count = @($allAdmins | Where-Object { $_.AdminRiskLevel -eq $level }).Count
+
+        [PSCustomObject]@{
+            RiskLevel = $level
+            Count     = $count
+        }
+    }
+)
+
+$riskTable | Format-Table
+$riskTable | Get-Member
+$riskTable.Count
+
+$riskTable | Export-Excel `
+    -Path $exportPath `
+    -WorksheetName "Risk Data" `
+    -TableName 'RiskTable' `
+    -AutoSize `
+    -Append
+
+Write-Host "MFA rows: $($mfaTable.Count)"
+Write-Host "Risk rows: $($riskTable.Count)"
+
+# ---------------------------------
+# TopRiskAdmins Data 
+# ---------------------------------
+
+$topRiskAdmins | Export-Excel `
+    -Path $exportPath `
+    -WorksheetName "TopRiskAdmin Data" `
+    -TableName 'TopRiskAdmins' `
+    -AutoSize `
+    -Append
+
+
+
+
+
+
+# ----------------------------------------------------
+# Identity Posture Score
+# ----------------------------------------------------
+
+$total = $totalAdmins
+
+# -----------------------------
+# Calculate normalized score
+# -----------------------------
+$postureScore = 100
+
+if ($total -gt 0) {
+    $postureScore -= (($noMFAAdmins / $total) * 40)
+    $postureScore -= (($criticalAdmins / $total) * 30)
+    $postureScore -= (($inactiveAdmins / $total) * 20)
+    $postureScore -= (($productivityAdmins / $total) * 10)
+}
+
+$postureScore = [math]::Round($postureScore, 0)
+if ($postureScore -lt 0) { $postureScore = 0 }
+
+# -----------------------------
+# Level (human readable)
+# -----------------------------
+switch ($postureScore) {
+    { $_ -ge 90 } { $postureLevel = "Excellent"; break }
+    { $_ -ge 75 } { $postureLevel = "Good"; break }
+    { $_ -ge 50 } { $postureLevel = "Moderate Risk"; break }
+    default { $postureLevel = "High Risk" }
+}
+
+# -----------------------------
+# Grade (executive friendly)
+# -----------------------------
+switch ($postureScore) {
+    { $_ -ge 85 } { $grade = "A"; break }
+    { $_ -ge 70 } { $grade = "B"; break }
+    { $_ -ge 50 } { $grade = "C"; break }
+    { $_ -ge 30 } { $grade = "D"; break }
+    default { $grade = "F" }
+}
+
+# -----------------------------
+# UX label 
+# -----------------------------
+$postureLabel = "$postureScore ($postureLevel - Grade $grade)"
+
+# -----------------------------
+# Export Object
+# -----------------------------
+$posture = @(
+    [PSCustomObject]@{ Metric = "Privileged Identity Security Score"; Value = $postureScore }
+    [PSCustomObject]@{ Metric = "Posture Level"; Value = $postureLevel }
+    [PSCustomObject]@{ Metric = "Security Grade"; Value = $grade }
+    [PSCustomObject]@{ Metric = "Display"; Value = $postureLabel }
+)
 # ----------------------------------------------------
 # Build summary dataset
 # ----------------------------------------------------
 
 $summary = @(
-    [PSCustomObject]@{ Metric="Total Administrators"; Value=$totalAdmins }
-    [PSCustomObject]@{ Metric="Critical Risk Admins"; Value=$criticalAdmins }
-    [PSCustomObject]@{ Metric="High Risk Admins"; Value=$highAdmins }
-    [PSCustomObject]@{ Metric="Medium Risk Admins"; Value=$mediumAdmins }
-    [PSCustomObject]@{ Metric="Low Risk Admins"; Value=$lowAdmins }
-    [PSCustomObject]@{ Metric="Admins without Strong MFA"; Value=$noMFAAdmins }
-    [PSCustomObject]@{ Metric="Admins with Productivity Services"; Value=$productivityAdmins }
-    [PSCustomObject]@{ Metric="Inactive Admins (>90 days)"; Value=$inactiveAdmins }
+    [PSCustomObject]@{ Metric = "Total Administrators"; Value = $totalAdmins }
+    [PSCustomObject]@{ Metric = "Critical Risk Admins"; Value = $criticalAdmins }
+    [PSCustomObject]@{ Metric = "High Risk Admins"; Value = $highAdmins }
+    [PSCustomObject]@{ Metric = "Medium Risk Admins"; Value = $mediumAdmins }
+    [PSCustomObject]@{ Metric = "Low Risk Admins"; Value = $lowAdmins }
+    [PSCustomObject]@{ Metric = "Admins without Strong MFA"; Value = $noMFAAdmins }
+    [PSCustomObject]@{ Metric = "Admins with Productivity Services"; Value = $productivityAdmins }
+    [PSCustomObject]@{ Metric = "Inactive Admins (>90 days)"; Value = $inactiveAdmins }
+
+
+)
+
+# ----------------------------------------------------
+# Dashboard dataset
+# ----------------------------------------------------
+
+$dashboard = @(
+    [PSCustomObject]@{ Metric = "Total Admins"; Value = $totalAdmins }
+    [PSCustomObject]@{ Metric = "Critical Admins"; Value = $criticalAdmins }
+    [PSCustomObject]@{ Metric = "High Risk Admins"; Value = $highAdmins }
+    [PSCustomObject]@{ Metric = "Medium Risk Admins"; Value = $mediumAdmins }
+    [PSCustomObject]@{ Metric = "Low Risk Admins"; Value = $lowAdmins }
+    [PSCustomObject]@{ Metric = "Admins without MFA"; Value = $noMFAAdmins }
+    [PSCustomObject]@{ Metric = "Inactive Admins"; Value = $inactiveAdmins }
+    [PSCustomObject]@{ Metric = "Admins with Productivity Services"; Value = $productivityAdmins }
+)
+
+$riskDistribution = @(
+    [PSCustomObject]@{ RiskLevel = "Critical"; Count = $criticalAdmins }
+    [PSCustomObject]@{ RiskLevel = "High"; Count = $highAdmins }
+    [PSCustomObject]@{ RiskLevel = "Medium"; Count = $mediumAdmins }
+    [PSCustomObject]@{ RiskLevel = "Low"; Count = $lowAdmins }
 )
 Write-Host "Exporting data to Excel..." -ForegroundColor Cyan
 
-$exportPath = "$folder\$orgdisplayname-EntraIDAdminReport$date.xlsx"
+
 
 
 # Administrators
@@ -586,7 +824,8 @@ $administrators | Export-Excel `
     -TableName Administrators `
     -FreezeTopRow `
     -AutoSize `
-    -TableStyle Medium2
+    -TableStyle Medium2 `
+    -Append
 
 # Eligible Roles
 $eligible | Export-Excel `
@@ -610,28 +849,30 @@ $azroles | Export-Excel `
     -Append `
     -TableStyle Medium2
 
-# Top Risky Admins
 
-$RiskChart = New-ExcelChartDefinition `
-    -Title "Top Risky Administrators" `
-    -ChartType BarClustered `
-    -XRange "TopRiskAdmins[UserPrincipalName]" `
-    -YRange "TopRiskAdmins[AdminRiskScore]" `
-    -Width 800 `
-    -Height 400 `
-    -NoLegend `
-    -Row 1 `
-    -Column 6
 
-$topRiskAdmins | Export-Excel `
+# ----------------------------------------------------
+# Dashboard Charts
+# ----------------------------------------------------
+
+$posture | Export-Excel `
     -Path $exportPath `
-    -WorksheetName "Top Risky Admins" `
-    -TableName TopRiskAdmins `
+    -WorksheetName "Identity Posture" `
+    -TableName IdentityPosture `
     -AutoSize `
-    -FreezeTopRow `
     -Append `
-    -TableStyle Medium2 `
-    -ExcelChartDefinition $RiskChart
+    -TableStyle Medium2
+
+<# $riskDistribution | Export-Excel `
+    -Path $exportPath `
+    -WorksheetName "Identity Dashboard" `
+    -TableName RiskDistribution `
+    -Append `
+    -AutoSize #>
+
+
+
+
 
 Write-Host "Adding conditional formatting..." -ForegroundColor Cyan
 
@@ -640,8 +881,7 @@ $adminRows = $administrators.Count + 1
 $eligibleRows = $eligible.Count + 1
 $azRows = $azroles.Count + 1
 $topRows = $topRiskAdmins.Count + 1
-# Top Risky Admins worksheet
-$ws2 = $excel.Workbook.Worksheets["Top Risky Admins"]
+
 
 
 
@@ -719,53 +959,194 @@ Add-ConditionalFormatting -Worksheet $ws -Address "I2:I$azRows" `
     -BackgroundColor LightGreen
 
 
-# Top Risky Admins sheet
-$ws2 = $excel.Workbook.Worksheets["Top Risky Admins"]
 
-# Make risk score column bold
-$ws2.Cells["D2:D$topRows"].Style.Font.Bold = $true
 
-# -----------------------------
-# Risk Level color formatting
-# -----------------------------
 
-Add-ConditionalFormatting -Worksheet $ws2 -Address "E2:E$($topRiskAdmins.Count + 1)" `
-    -RuleType ContainsText `
-    -ConditionValue "Critical" `
-    -BackgroundColor Red
-
-Add-ConditionalFormatting -Worksheet $ws2 -Address "E2:E$($topRiskAdmins.Count + 1)" `
-    -RuleType ContainsText `
-    -ConditionValue "High" `
-    -BackgroundColor Orange
-
-Add-ConditionalFormatting -Worksheet $ws2 -Address "E2:E$($topRiskAdmins.Count + 1)" `
-    -RuleType ContainsText `
-    -ConditionValue "Medium" `
-    -BackgroundColor Yellow
-
-Add-ConditionalFormatting -Worksheet $ws2 -Address "E2:E$($topRiskAdmins.Count + 1)" `
-    -RuleType ContainsText `
-    -ConditionValue "Low" `
-    -BackgroundColor LightGreen
 
 
 # -----------------------------
 # Traffic light icons for score
 # -----------------------------
 
-Add-ConditionalFormatting `
+<#Add-ConditionalFormatting `
     -Worksheet $ws2 `
     -Address "D2:D$topRows" `
     -ThreeIconsSet TrafficLights1 `
-    -Reverse
+    -Reverse #>
+# ----------------------------------------------------
+# BUILD COMPLETE SELF-CONTAINED DASHBOARD
+# ----------------------------------------------------
+
+
+$ws = $excel.Workbook.Worksheets["Identity Dashboard"]
+if (-not $ws) {
+    $ws = $excel.Workbook.Worksheets.Add("Identity Dashboard")
+}
+
+#$ws.Cells.Clear()
+#$ws.Drawings.Clear()
+#$ws.Tables.Clear()
+$ws.View.ShowGridLines = $false
+
+# ----------------------------------------------------
+# TITLE
+# ----------------------------------------------------
+$ws.Cells["A1"].Value = "Entra Administrator Identity Security Dashboard"
+$ws.Cells["A1:X1"].Merge = $true
+$ws.Cells["A1"].Style.Font.Size = 28
+$ws.Cells["A1"].Style.Font.Bold = $true
+$ws.Cells["A1"].Style.HorizontalAlignment = "Center"
+
+$ws.Cells["A1"].Style.Fill.PatternType = "Solid"
+$ws.Cells["A1"].Style.Fill.BackgroundColor.SetColor([System.Drawing.Color]::FromArgb(122, 31, 162))
+$ws.Cells["A1"].Style.Font.Color.SetColor([System.Drawing.Color]::White)
+
+# ----------------------------------------------------
+# KPI CARDS
+# ----------------------------------------------------
+function Set-KPI {
+    param($range)
+
+    $ws.Cells[$range].Style.Fill.PatternType = "Solid"
+    $ws.Cells[$range].Style.Fill.BackgroundColor.SetColor([System.Drawing.Color]::FromArgb(245, 245, 245))
+    $ws.Cells[$range].Style.HorizontalAlignment = "Center"
+    $ws.Cells[$range].Style.VerticalAlignment = "Center"
+    $ws.Cells[$range].Style.Border.BorderAround("Medium")
+}
+$ws.Cells["B3:C3"].Merge = $true
+$ws.Cells["B4:C4"].Merge = $true
+$ws.Cells["B3"].Value = "Total Admins"
+$ws.Cells["B4"].Value = $totalAdmins
+
+$ws.Cells["E3:F3"].Merge = $true
+$ws.Cells["E4:F4"].Merge = $true
+$ws.Cells["E3"].Value = "Critical"
+$ws.Cells["E4"].Value = $criticalAdmins
+
+$ws.Cells["H3:I3"].Merge = $true
+$ws.Cells["H4:I4"].Merge = $true
+$ws.Cells["H3"].Value = "No MFA"
+$ws.Cells["H4"].Value = $noMFAAdmins
+
+$ws.Cells["K3:L3"].Merge = $true
+$ws.Cells["K4:L4"].Merge = $true
+$ws.Cells["K3"].Value = "Inactive"
+$ws.Cells["K4"].Value = $inactiveAdmins
+
+Set-KPI "B3:C4"
+Set-KPI "E3:F4"
+Set-KPI "H3:I4"
+Set-KPI "K3:L4"
+
+$ws.Cells["B3:L3"].Style.Font.Size = 10
+$ws.Cells["B3:L3"].Style.Font.Bold = $true
+$ws.Cells["B4:L4"].Style.Font.Size = 18
+$ws.Cells["B4:L4"].Style.Font.Bold = $true
+
+# ----------------------------------------------------
+# POSTURE SCORE
+# ----------------------------------------------------
+
+
+# Reset
+$ws.Cells["F5:J9"].Merge = $false
+
+# merge
+$ws.Cells["F5:J9"].Merge = $true
+
+$ws.Cells["F5"].Value = "Privileged Identity Security Score`n`n$postureScore`n$postureLevel (Grade $grade)"
+
+$ws.Cells["F5"].Style.WrapText = $true
+$ws.Cells["F5"].Style.HorizontalAlignment = "Center"
+$ws.Cells["F5"].Style.VerticalAlignment = "Center"
+
+$ws.Cells["F5"].Style.Font.Size = 22
+$ws.Cells["F5"].Style.Font.Bold = $true
+
+$ws.Cells["F5:J9"].Style.Fill.PatternType = "Solid"
+$ws.Cells["F5:J9"].Style.Fill.BackgroundColor.SetColor([System.Drawing.Color]::FromArgb(230, 240, 255))
+
+$ws.Cells["F5:J9"].Style.Border.BorderAround("Thick")
+
+# Color based on score
+if ($postureScore -ge 75) { $color = [System.Drawing.Color]::Green }
+elseif ($postureScore -ge 50) { $color = [System.Drawing.Color]::Orange }
+else { $color = [System.Drawing.Color]::Red }
+
+$ws.Cells["F5"].Style.Font.Color.SetColor($color)
+
+
+
+# Style background
+$ws.Cells["F6:H8"].Style.Fill.PatternType = "Solid"
+$ws.Cells["F6:H8"].Style.Fill.BackgroundColor.SetColor([System.Drawing.Color]::FromArgb(245, 245, 245))
+
+# Border
+$ws.Cells["F6:H8"].Style.Border.BorderAround("Medium")
+
+# Alignment
+$ws.Cells["F6:H8"].Style.HorizontalAlignment = "Center"
+$ws.Cells["F6:H8"].Style.VerticalAlignment = "Center"
+
+# Font styles
+$ws.Cells["F6"].Style.Font.Size = 10
+$ws.Cells["F6"].Style.Font.Bold = $true
+
+$ws.Cells["F7"].Style.Font.Size = 28
+$ws.Cells["F7"].Style.Font.Bold = $true
+
+$ws.Cells["F8"].Style.Font.Size = 10
+
+if ($postureScore -ge 75) { $color = [System.Drawing.Color]::Green }
+elseif ($postureScore -ge 50) { $color = [System.Drawing.Color]::Orange }
+else { $color = [System.Drawing.Color]::Red }
+
+$ws.Cells["F7"].Style.Font.Color.SetColor($color)
 
 
 
 
 
+# ----------------------------------------------------
+# CHARTS
+# ----------------------------------------------------
 
-# Save Excel file
-Close-ExcelPackage $excel
+# Risk
+Add-ExcelChart `
+    -Worksheet $ws `
+    -ChartType Doughnut `
+    -Title "Admin Risk Distribution" `
+    -XRange "RiskTable[RiskLevel]" `
+    -YRange "RiskTable[Count]" `
+    -Row 10 `
+    -Column 1 `
+    -Width 450 `
+    -Height 300
+
+# MFA
+Add-ExcelChart `
+    -Worksheet $ws `
+    -ChartType Doughnut `
+    -Title "MFA Coverage" `
+    -XRange "MfaTable[MFAStatus]" `
+    -YRange "MfaTable[Count]" `
+    -Row 10 `
+    -Column 9 `
+    -Width 450 `
+    -Height 300
+
+# Top admins
+Add-ExcelChart `
+    -Worksheet $ws `
+    -ChartType BarClustered `
+    -Title "Top 10 Highest Risk Admins" `
+    -XRange "TopRiskAdmins[displayName]" `
+    -YRange "TopRiskAdmins[AdminRiskScore]" `
+    -Row 28 `
+    -Column 1 `
+    -Width 1400 `
+    -Height 450
+
+Close-ExcelPackage -ExcelPackage  $excel
 
 Write-Host "✅ Export completed successfully: $exportPath" -ForegroundColor Green
