@@ -367,7 +367,8 @@ $excelUsers | ForEach-Object {
 $excelUsers | Export-Excel `
     -Path "$($filepath.Replace('.xlsx','_result.xlsx'))" `
     -AutoSize `
-    -TableName GuestOnboardingResults
+    -TableName GuestOnboardingResults `
+    -TableStyle Medium2
 
 
 Write-Host "===================================" -ForegroundColor DarkGray

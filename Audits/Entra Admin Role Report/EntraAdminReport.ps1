@@ -162,6 +162,7 @@ function Get-AdminRiskScore {
         }
     }
 
+
     # PRODUCTIVITY SERVICES
     if ($User.ProductivityServicesEnabled) {
         $score += 5
@@ -235,7 +236,7 @@ Test-Module -Name ImportExcel
 Write-Host "✅ All modules are installed and imported." -ForegroundColor Green
 # Disconnect any existing sessions
 Write-Host "Disconnecting any existing sessions..." -ForegroundColor Cyan
-disconnect-Mggraph
+disconnect-Mggraph -ErrorAction SilentlyContinue
 Disconnect-AzAccount  
 Write-Host "✅ All sessions disconnected." -ForegroundColor Green
 # Connect new sessions
@@ -244,7 +245,7 @@ Disable-AzContextAutosave -Scope Process
 Update-AzConfig -LoginExperienceV2 Off -Scope Process
 Connect-AzAccount
 Write-Host "Connecting to Microsoft Graph..." -ForegroundColor Cyan
-Connect-MgGraph -Scopes 'RoleManagement.Read.Directory', 'User.Read.All', 'User.ReadBasic.All', 'User.Read', 'GroupMember.Read.All', 'Group.Read.All', 'Directory.Read.All', 'Directory.AccessAsUser.All', 'RoleEligibilitySchedule.Read.Directory', 'RoleManagement.Read.All', 'SecurityActions.Read.All', 'SecurityActions.ReadWrite.All', 'SecurityEvents.Read.All', "Organization.Read.All", "AuditLog.Read.All"   -ContextScope Process
+Connect-MgGraph -Scopes 'RoleManagement.Read.Directory', 'User.Read.All', 'User.ReadBasic.All', 'User.Read', 'GroupMember.Read.All', 'Group.Read.All', 'Directory.Read.All', 'Directory.AccessAsUser.All', 'RoleEligibilitySchedule.Read.Directory', 'RoleManagement.Read.All', 'SecurityActions.Read.All', 'SecurityActions.ReadWrite.All', 'SecurityEvents.Read.All', "Organization.Read.All", "AuditLog.Read.All", "UserAuthenticationMethod.Read.All"   -ContextScope Process
 Write-Host "✅ You are now fully connected!" -ForegroundColor Green
 
 
@@ -636,6 +637,37 @@ $productivityAdmins = ($allAdmins | Where-Object {
         $_.ProductivityServicesEnabled -eq $true
     }).Count
 
+# ----------------------------------------------------
+# Largest Risk Calculation
+# ----------------------------------------------------
+
+$risks = @()
+
+$risks += [PSCustomObject]@{
+    Name  = "Missing MFA on admins"
+    Count = $noMFAAdmins
+}
+
+$risks += [PSCustomObject]@{
+    Name  = "Critical role exposure"
+    Count = $criticalAdmins
+}
+
+$risks += [PSCustomObject]@{
+    Name  = "Inactive privileged accounts"
+    Count = $inactiveAdmins
+}
+
+$risks += [PSCustomObject]@{
+    Name  = "Admins with M365 access"
+    Count = $productivityAdmins
+}
+
+$largestRisk = $risks |
+Where-Object { $_.Count -gt 0 } |
+Sort-Object Count -Descending |
+Select-Object -First 1
+
 
 $allAdmins | Export-Excel `
     -Path $exportPath `
@@ -643,7 +675,19 @@ $allAdmins | Export-Excel `
     -TableName AllAdminsTable `
     -AutoSize `
 
+#Inactive data 
 
+$activityTable = @(
+    [PSCustomObject]@{ Status = "Active"; Count = $totalAdmins - $inactiveAdmins }
+    [PSCustomObject]@{ Status = "Inactive"; Count = $inactiveAdmins }
+)
+
+$activityTable | Export-Excel `
+    -Path $exportPath `
+    -WorksheetName "Activity Data" `
+    -TableName ActivityTable `
+    -AutoSize `
+    -Append
 
 # MFA DATA
 $mfaStatuses = @("Strong MFA", "No MFA")
@@ -700,6 +744,8 @@ $riskTable | Export-Excel `
 
 Write-Host "MFA rows: $($mfaTable.Count)"
 Write-Host "Risk rows: $($riskTable.Count)"
+
+
 
 # ---------------------------------
 # TopRiskAdmins Data 
@@ -863,12 +909,7 @@ $posture | Export-Excel `
     -Append `
     -TableStyle Medium2
 
-<# $riskDistribution | Export-Excel `
-    -Path $exportPath `
-    -WorksheetName "Identity Dashboard" `
-    -TableName RiskDistribution `
-    -Append `
-    -AutoSize #>
+
 
 
 
@@ -877,6 +918,12 @@ $posture | Export-Excel `
 Write-Host "Adding conditional formatting..." -ForegroundColor Cyan
 
 $excel = Open-ExcelPackage $exportPath
+$excel.Workbook.Worksheets["All Admins"].Hidden = "Hidden"
+$excel.Workbook.Worksheets["Activity Data"].Hidden = "Hidden"
+$excel.Workbook.Worksheets["TopRiskAdmin Data"].Hidden = "Hidden"
+$excel.Workbook.Worksheets["Identity Posture"].Hidden = "Hidden"
+$excel.Workbook.Worksheets["MFA Data"].Hidden = "Hidden"
+$excel.Workbook.Worksheets["Risk Data"].Hidden = "Hidden"
 $adminRows = $administrators.Count + 1
 $eligibleRows = $eligible.Count + 1
 $azRows = $azroles.Count + 1
@@ -974,7 +1021,7 @@ Add-ConditionalFormatting -Worksheet $ws -Address "I2:I$azRows" `
     -ThreeIconsSet TrafficLights1 `
     -Reverse #>
 # ----------------------------------------------------
-# BUILD COMPLETE SELF-CONTAINED DASHBOARD
+# SELF-CONTAINED DASHBOARD
 # ----------------------------------------------------
 
 
@@ -982,17 +1029,76 @@ $ws = $excel.Workbook.Worksheets["Identity Dashboard"]
 if (-not $ws) {
     $ws = $excel.Workbook.Worksheets.Add("Identity Dashboard")
 }
+# Move dashboard to first
+$excel.Workbook.View.ActiveTab = $ws.Index - 1
+$ws.Select()
+# Remove default borders 
+$ws.Cells.Style.Border.Top.Style = "None"
+$ws.Cells.Style.Border.Bottom.Style = "None"
+$ws.Cells.Style.Border.Left.Style = "None"
+$ws.Cells.Style.Border.Right.Style = "None"
+$ws.Cells.Style.Fill.PatternType = "Solid"
+$ws.Cells.Style.Fill.BackgroundColor.SetColor(
+    [System.Drawing.Color]::FromArgb(248, 248, 250)
+)
 
-#$ws.Cells.Clear()
-#$ws.Drawings.Clear()
-#$ws.Tables.Clear()
-$ws.View.ShowGridLines = $false
+# ----------------------------------------------------
+# BACKGROUND CONTAINER
+# ----------------------------------------------------
+
+$dashboardRange = "B2:O75"
+$ws.Column(1).Width = 5
+
+# Clean background
+$ws.Cells[$dashboardRange].Style.Fill.PatternType = "Solid"
+$ws.Cells[$dashboardRange].Style.Fill.BackgroundColor.SetColor(
+    [System.Drawing.Color]::FromArgb(248, 248, 250)
+)
+$ws.Cells["A2:O2"].Style.Border.Top.Style = "Medium"
+$ws.Cells["A75:O75"].Style.Border.Bottom.Style = "Medium"
+$ws.Cells["A2:A75"].Style.Border.Left.Style = "Medium"
+$ws.Cells["O2:O75"].Style.Border.Right.Style = "Medium"
+
+
+
+# ----------------------------------------------------
+# REMOVE GRIDLINES (FIX)
+# ----------------------------------------------------
+try {
+    $ws.View.ShowGridLines = $false
+}
+catch {
+    Write-Host "Gridlines property not available, applying fallback..." -ForegroundColor Yellow
+    
+    # Fallback: make gridlines invisible by setting background
+    $ws.Cells.Style.Fill.PatternType = "Solid"
+    $ws.Cells.Style.Fill.BackgroundColor.SetColor([System.Drawing.Color]::White)
+}
+
+# ----------------------------------------------------
+# COLUMN WIDTHS 
+# ----------------------------------------------------
+1..15 | ForEach-Object {
+    $ws.Column($_).Width = 18
+}
+# ROW SPACING 
+$ws.Row(5).Height = 20   # mellan KPI och cards
+$ws.Row(12).Height = 25  # mellan cards och charts
+$ws.Row(20).Height = 25  # mellan charts och bar chart
+# ----------------------------------------------------
+# ROW HEIGHT (SPACING FOR CARDS)
+# ----------------------------------------------------
+$ws.Row(6).Height = 45
+$ws.Row(7).Height = 45
+$ws.Row(8).Height = 35
+$ws.Row(9).Height = 35
+$ws.Row(10).Height = 35
 
 # ----------------------------------------------------
 # TITLE
 # ----------------------------------------------------
 $ws.Cells["A1"].Value = "Entra Administrator Identity Security Dashboard"
-$ws.Cells["A1:X1"].Merge = $true
+$ws.Cells["A1:O1"].Merge = $true
 $ws.Cells["A1"].Style.Font.Size = 28
 $ws.Cells["A1"].Style.Font.Bold = $true
 $ws.Cells["A1"].Style.HorizontalAlignment = "Center"
@@ -1004,112 +1110,155 @@ $ws.Cells["A1"].Style.Font.Color.SetColor([System.Drawing.Color]::White)
 # ----------------------------------------------------
 # KPI CARDS
 # ----------------------------------------------------
+# KPI GRID (centered)
+$ws.Cells["C3:D3"].Merge = $true
+$ws.Cells["C4:D4"].Merge = $true
+
+$ws.Cells["F3:G3"].Merge = $true
+$ws.Cells["F4:G4"].Merge = $true
+
+$ws.Cells["I3:J3"].Merge = $true
+$ws.Cells["I4:J4"].Merge = $true
+
+$ws.Cells["L3:M3"].Merge = $true
+$ws.Cells["L4:M4"].Merge = $true
+
+# Values (reuse your variables)
+$ws.Cells["C3"].Value = "Total Admins"
+$ws.Cells["C4"].Value = $totalAdmins
+
+$ws.Cells["F3"].Value = "Critical"
+$ws.Cells["F4"].Value = $criticalAdmins
+
+$ws.Cells["I3"].Value = "No MFA"
+$ws.Cells["I4"].Value = $noMFAAdmins
+
+$ws.Cells["L3"].Value = "Inactive"
+$ws.Cells["L4"].Value = $inactiveAdmins
+
+# Style KPI cards
 function Set-KPI {
     param($range)
 
     $ws.Cells[$range].Style.Fill.PatternType = "Solid"
-    $ws.Cells[$range].Style.Fill.BackgroundColor.SetColor([System.Drawing.Color]::FromArgb(245, 245, 245))
+    $ws.Cells[$range].Style.Fill.BackgroundColor.SetColor(
+        [System.Drawing.Color]::FromArgb(255, 255, 255)
+    )
+
     $ws.Cells[$range].Style.HorizontalAlignment = "Center"
     $ws.Cells[$range].Style.VerticalAlignment = "Center"
-    $ws.Cells[$range].Style.Border.BorderAround("Medium")
+
+    $ws.Cells[$range].Style.Border.BorderAround("Thin")
 }
-$ws.Cells["B3:C3"].Merge = $true
-$ws.Cells["B4:C4"].Merge = $true
-$ws.Cells["B3"].Value = "Total Admins"
-$ws.Cells["B4"].Value = $totalAdmins
 
-$ws.Cells["E3:F3"].Merge = $true
-$ws.Cells["E4:F4"].Merge = $true
-$ws.Cells["E3"].Value = "Critical"
-$ws.Cells["E4"].Value = $criticalAdmins
-
-$ws.Cells["H3:I3"].Merge = $true
-$ws.Cells["H4:I4"].Merge = $true
-$ws.Cells["H3"].Value = "No MFA"
-$ws.Cells["H4"].Value = $noMFAAdmins
-
-$ws.Cells["K3:L3"].Merge = $true
-$ws.Cells["K4:L4"].Merge = $true
-$ws.Cells["K3"].Value = "Inactive"
-$ws.Cells["K4"].Value = $inactiveAdmins
-
-Set-KPI "B3:C4"
-Set-KPI "E3:F4"
-Set-KPI "H3:I4"
-Set-KPI "K3:L4"
-
-$ws.Cells["B3:L3"].Style.Font.Size = 10
-$ws.Cells["B3:L3"].Style.Font.Bold = $true
-$ws.Cells["B4:L4"].Style.Font.Size = 18
-$ws.Cells["B4:L4"].Style.Font.Bold = $true
+Set-KPI "C3:D4"
+Set-KPI "F3:G4"
+Set-KPI "I3:J4"
+Set-KPI "L3:M4"
+$ws.Cells["C3:M3"].Style.Font.Color.SetColor([System.Drawing.Color]::DimGray)
+$ws.Cells["C4:M4"].Style.Font.Size = 16
+$ws.Cells["C4:M4"].Style.Font.Bold = $true
 
 # ----------------------------------------------------
-# POSTURE SCORE
+# HERO AREA (Risk + Posture)
 # ----------------------------------------------------
 
+# LEFT CARD (PRIMARY RISK)
+$riskRange = $ws.Cells["C6:G11"]
+$riskRange.Merge = $true
 
-# Reset
-$ws.Cells["F5:J9"].Merge = $false
+$riskRange.Style.Fill.PatternType = "Solid"
+$riskRange.Style.Fill.BackgroundColor.SetColor([System.Drawing.Color]::FromArgb(255, 240, 200))
+$riskRange.Style.Border.BorderAround("Thin")
+$riskRange.Style.HorizontalAlignment = "Center"
+$riskRange.Style.VerticalAlignment = "Center"
 
-# merge
-$ws.Cells["F5:J9"].Merge = $true
+$riskCell = $ws.Cells["C6"]
+$riskCell.Value = ""
+$riskCell.Style.WrapText = $true
 
-$ws.Cells["F5"].Value = "Privileged Identity Security Score`n`n$postureScore`n$postureLevel (Grade $grade)"
+# TEXT
+if ($largestRisk) {
+    $textTitle = "⚠ PRIMARY RISK"
+    $textMain = $largestRisk.Name
+    $textSub = "$($largestRisk.Count) admins affected"
+}
+else {
+    $textTitle = "PRIMARY RISK"
+    $textMain = "No major risks detected"
+    $textSub = ""
+}
 
-$ws.Cells["F5"].Style.WrapText = $true
-$ws.Cells["F5"].Style.HorizontalAlignment = "Center"
-$ws.Cells["F5"].Style.VerticalAlignment = "Center"
+$rt = $riskCell.RichText
+$rt.Clear()
 
-$ws.Cells["F5"].Style.Font.Size = 22
-$ws.Cells["F5"].Style.Font.Bold = $true
+$t1 = $rt.Add("$textTitle`n")
+$t1.Size = 10
+$t1.Color = [System.Drawing.Color]::DimGray
 
-$ws.Cells["F5:J9"].Style.Fill.PatternType = "Solid"
-$ws.Cells["F5:J9"].Style.Fill.BackgroundColor.SetColor([System.Drawing.Color]::FromArgb(230, 240, 255))
+$t2 = $rt.Add("$textMain`n")
+$t2.Bold = $true
+$t2.Size = 18
+$t2.Color = [System.Drawing.Color]::DarkOrange
 
-$ws.Cells["F5:J9"].Style.Border.BorderAround("Thick")
-
-# Color based on score
-if ($postureScore -ge 75) { $color = [System.Drawing.Color]::Green }
-elseif ($postureScore -ge 50) { $color = [System.Drawing.Color]::Orange }
-else { $color = [System.Drawing.Color]::Red }
-
-$ws.Cells["F5"].Style.Font.Color.SetColor($color)
-
-
-
-# Style background
-$ws.Cells["F6:H8"].Style.Fill.PatternType = "Solid"
-$ws.Cells["F6:H8"].Style.Fill.BackgroundColor.SetColor([System.Drawing.Color]::FromArgb(245, 245, 245))
-
-# Border
-$ws.Cells["F6:H8"].Style.Border.BorderAround("Medium")
-
-# Alignment
-$ws.Cells["F6:H8"].Style.HorizontalAlignment = "Center"
-$ws.Cells["F6:H8"].Style.VerticalAlignment = "Center"
-
-# Font styles
-$ws.Cells["F6"].Style.Font.Size = 10
-$ws.Cells["F6"].Style.Font.Bold = $true
-
-$ws.Cells["F7"].Style.Font.Size = 28
-$ws.Cells["F7"].Style.Font.Bold = $true
-
-$ws.Cells["F8"].Style.Font.Size = 10
-
-if ($postureScore -ge 75) { $color = [System.Drawing.Color]::Green }
-elseif ($postureScore -ge 50) { $color = [System.Drawing.Color]::Orange }
-else { $color = [System.Drawing.Color]::Red }
-
-$ws.Cells["F7"].Style.Font.Color.SetColor($color)
+$t3 = $rt.Add("$textSub")
+$t3.Size = 10
+$t3.Color = [System.Drawing.Color]::Gray
 
 
+# RIGHT CARD (POSTURE SCORE)
 
+if ($postureScore -ge 85) {
+    $scoreColor = [System.Drawing.Color]::FromArgb(0, 150, 0)
+    $scoreBg = [System.Drawing.Color]::FromArgb(220, 255, 220)
+}
+elseif ($postureScore -ge 60) {
+    $scoreColor = [System.Drawing.Color]::FromArgb(255, 140, 0)
+    $scoreBg = [System.Drawing.Color]::FromArgb(255, 240, 200)
+}
+else {
+    $scoreColor = [System.Drawing.Color]::FromArgb(200, 0, 0)
+    $scoreBg = [System.Drawing.Color]::FromArgb(255, 220, 220)
+}
+$scoreRange = $ws.Cells["H6:M11"]
+$scoreRange.Merge = $true
+
+$scoreRange.Style.Fill.PatternType = "Solid"
+$scoreRange.Style.Fill.BackgroundColor.SetColor([System.Drawing.Color]$scoreBg)
+$scoreRange.Style.Border.BorderAround("Thin")
+$scoreRange.Style.HorizontalAlignment = "Center"
+$scoreRange.Style.VerticalAlignment = "Center"
+
+$scoreCell = $ws.Cells["H6"]
+$scoreCell.Value = ""
+$scoreCell.Style.WrapText = $true
+
+$rt = $scoreCell.RichText
+$rt.Clear()
+
+$t1 = $rt.Add("Identity Security Score`n")
+$t1.Size = 10
+$t1.Color = [System.Drawing.Color]::DimGray
+
+$t2 = $rt.Add("$postureScore`n")
+$t2.Bold = $true
+$t2.Size = 36
+$t2.Color = [System.Drawing.Color]$scoreColor
+
+$t3 = $rt.Add("$postureLevel`n")
+$t3.Size = 12
+$t3.Color = [System.Drawing.Color]::DimGray
+
+$t4 = $rt.Add("Grade $grade")
+$t4.Size = 10
+$t4.Color = [System.Drawing.Color]::Gray
 
 
 # ----------------------------------------------------
 # CHARTS
 # ----------------------------------------------------
+
+
 
 # Risk
 Add-ExcelChart `
@@ -1118,10 +1267,105 @@ Add-ExcelChart `
     -Title "Admin Risk Distribution" `
     -XRange "RiskTable[RiskLevel]" `
     -YRange "RiskTable[Count]" `
-    -Row 10 `
-    -Column 1 `
-    -Width 450 `
+    -Row 16 `
+    -Column 2 `
+    -Width 390 `
     -Height 300
+$chart = $ws.Drawings[-1]
+$chart.Style = 26
+
+# FIX COLORS
+$chartXml = $chart.ChartXml
+
+$ns = New-Object System.Xml.XmlNamespaceManager($chartXml.NameTable)
+$ns.AddNamespace("c", "http://schemas.openxmlformats.org/drawingml/2006/chart")
+$ns.AddNamespace("a", "http://schemas.openxmlformats.org/drawingml/2006/main")
+
+$points = $chartXml.SelectNodes("//c:ser/c:dPt", $ns)
+
+# Ensure datapoints exist (create if missing)
+if ($points.Count -eq 0) {
+    $serNode = $chartXml.SelectSingleNode("//c:ser", $ns)
+
+    0..3 | ForEach-Object {
+        $dPt = $chartXml.CreateElement("c:dPt", $ns.LookupNamespace("c"))
+
+        $idx = $chartXml.CreateElement("c:idx", $ns.LookupNamespace("c"))
+        $idx.SetAttribute("val", $_)
+
+        $spPr = $chartXml.CreateElement("c:spPr", $ns.LookupNamespace("c"))
+        $solidFill = $chartXml.CreateElement("a:solidFill", $ns.LookupNamespace("a"))
+        $srgbClr = $chartXml.CreateElement("a:srgbClr", $ns.LookupNamespace("a"))
+
+        switch ($_) {
+            0 { $srgbClr.SetAttribute("val", "C00000") } # Critical (red)
+            1 { $srgbClr.SetAttribute("val", "FF8C00") } # High (orange)
+            2 { $srgbClr.SetAttribute("val", "5B9BD5") } # Medium (neutral blue)
+            3 { $srgbClr.SetAttribute("val", "00B050") } # Low (green)
+        }
+
+        $solidFill.AppendChild($srgbClr) | Out-Null
+        $spPr.AppendChild($solidFill) | Out-Null
+        $dPt.AppendChild($idx) | Out-Null
+        $dPt.AppendChild($spPr) | Out-Null
+
+        $serNode.AppendChild($dPt) | Out-Null
+    }
+}
+
+
+
+$chart.Title.Font.Size = 12
+$chart.Title.Font.Bold = $true
+
+
+
+#Inactive
+Add-ExcelChart `
+    -Worksheet $ws `
+    -ChartType Doughnut `
+    -Title "Admin Activity (90 days)" `
+    -XRange "ActivityTable[Status]" `
+    -YRange "ActivityTable[Count]" `
+    -Row 16 `
+    -Column 6 `
+    -Width 390 `
+    -Height 300
+
+$chart = $ws.Drawings[-1]
+$chart.Style = 26
+
+$chartXml = $chart.ChartXml
+
+$ns = New-Object System.Xml.XmlNamespaceManager($chartXml.NameTable)
+$ns.AddNamespace("c", "http://schemas.openxmlformats.org/drawingml/2006/chart")
+$ns.AddNamespace("a", "http://schemas.openxmlformats.org/drawingml/2006/main")
+
+$serNode = $chartXml.SelectSingleNode("//c:ser", $ns)
+
+0..1 | ForEach-Object {
+
+    $dPt = $chartXml.CreateElement("c:dPt", $ns.LookupNamespace("c"))
+
+    $idx = $chartXml.CreateElement("c:idx", $ns.LookupNamespace("c"))
+    $idx.SetAttribute("val", $_)
+
+    $spPr = $chartXml.CreateElement("c:spPr", $ns.LookupNamespace("c"))
+    $solidFill = $chartXml.CreateElement("a:solidFill", $ns.LookupNamespace("a"))
+    $srgbClr = $chartXml.CreateElement("a:srgbClr", $ns.LookupNamespace("a"))
+
+    switch ($_) {
+        0 { $srgbClr.SetAttribute("val", "00B050") } # Active = green
+        1 { $srgbClr.SetAttribute("val", "FF8C00") } # Inactive = orange
+    }
+
+    $solidFill.AppendChild($srgbClr) | Out-Null
+    $spPr.AppendChild($solidFill) | Out-Null
+    $dPt.AppendChild($idx) | Out-Null
+    $dPt.AppendChild($spPr) | Out-Null
+
+    $serNode.AppendChild($dPt) | Out-Null
+}
 
 # MFA
 Add-ExcelChart `
@@ -1130,10 +1374,46 @@ Add-ExcelChart `
     -Title "MFA Coverage" `
     -XRange "MfaTable[MFAStatus]" `
     -YRange "MfaTable[Count]" `
-    -Row 10 `
-    -Column 9 `
-    -Width 450 `
+    -Row 16 `
+    -Column 10 `
+    -Width 390 `
     -Height 300
+
+
+
+$chart = $ws.Drawings[-1]
+$chart.Style = 26
+
+$chartXml = $chart.ChartXml
+
+$ns = New-Object System.Xml.XmlNamespaceManager($chartXml.NameTable)
+$ns.AddNamespace("c", "http://schemas.openxmlformats.org/drawingml/2006/chart")
+$ns.AddNamespace("a", "http://schemas.openxmlformats.org/drawingml/2006/main")
+
+$serNode = $chartXml.SelectSingleNode("//c:ser", $ns)
+
+0..1 | ForEach-Object {
+    $dPt = $chartXml.CreateElement("c:dPt", $ns.LookupNamespace("c"))
+
+    $idx = $chartXml.CreateElement("c:idx", $ns.LookupNamespace("c"))
+    $idx.SetAttribute("val", $_)
+
+    $spPr = $chartXml.CreateElement("c:spPr", $ns.LookupNamespace("c"))
+    $solidFill = $chartXml.CreateElement("a:solidFill", $ns.LookupNamespace("a"))
+    $srgbClr = $chartXml.CreateElement("a:srgbClr", $ns.LookupNamespace("a"))
+
+    switch ($_) {
+        0 { $srgbClr.SetAttribute("val", "00B050") } # Strong MFA = green
+        1 { $srgbClr.SetAttribute("val", "C00000") } # No MFA = red
+    }
+
+    $solidFill.AppendChild($srgbClr) | Out-Null
+    $spPr.AppendChild($solidFill) | Out-Null
+    $dPt.AppendChild($idx) | Out-Null
+    $dPt.AppendChild($spPr) | Out-Null
+
+    $serNode.AppendChild($dPt) | Out-Null
+}
 
 # Top admins
 Add-ExcelChart `
@@ -1142,10 +1422,75 @@ Add-ExcelChart `
     -Title "Top 10 Highest Risk Admins" `
     -XRange "TopRiskAdmins[displayName]" `
     -YRange "TopRiskAdmins[AdminRiskScore]" `
-    -Row 28 `
-    -Column 1 `
+    -Row 32 `
+    -Column 2 `
     -Width 1400 `
-    -Height 450
+    -Height 500
+
+$chart = $ws.Drawings | Where-Object {
+    $_.Title.Text -eq "Top 10 Highest Risk Admins"
+}
+
+# Clean look
+$chart.Style = 26
+
+# Remove legend 
+$chart.Legend.Remove()
+
+
+
+# Data labels 
+$chart.DataLabel.ShowValue = $true
+
+
+
+
+# -----------------------------------
+# COLOR BY RISK LEVEL (🔥 viktig)
+# -----------------------------------
+
+$chartXml = $chart.ChartXml
+
+$ns = New-Object System.Xml.XmlNamespaceManager($chartXml.NameTable)
+$ns.AddNamespace("c", "http://schemas.openxmlformats.org/drawingml/2006/chart")
+$ns.AddNamespace("a", "http://schemas.openxmlformats.org/drawingml/2006/main")
+
+$serNode = $chartXml.SelectSingleNode("//c:ser", $ns)
+$points = $chartXml.SelectNodes("//c:ser/c:dPt", $ns)
+
+# säkerställ datapoints finns
+if ($points.Count -eq 0) {
+    for ($i = 0; $i -lt $topRiskAdmins.Count; $i++) {
+
+        $admin = $topRiskAdmins[$i]
+
+        $dPt = $chartXml.CreateElement("c:dPt", $ns.LookupNamespace("c"))
+
+        $idx = $chartXml.CreateElement("c:idx", $ns.LookupNamespace("c"))
+        $idx.SetAttribute("val", $i)
+
+        $spPr = $chartXml.CreateElement("c:spPr", $ns.LookupNamespace("c"))
+        $solidFill = $chartXml.CreateElement("a:solidFill", $ns.LookupNamespace("a"))
+        $srgbClr = $chartXml.CreateElement("a:srgbClr", $ns.LookupNamespace("a"))
+
+        switch ($admin.AdminRiskLevel) {
+            "Critical" { $srgbClr.SetAttribute("val", "C00000") } # red
+            "High"     { $srgbClr.SetAttribute("val", "FF8C00") } # orange
+            "Medium"   { $srgbClr.SetAttribute("val", "5B9BD5") } # blue
+            default    { $srgbClr.SetAttribute("val", "00B050") } # green
+        }
+
+        $solidFill.AppendChild($srgbClr) | Out-Null
+        $spPr.AppendChild($solidFill) | Out-Null
+        $dPt.AppendChild($idx) | Out-Null
+        $dPt.AppendChild($spPr) | Out-Null
+
+        $serNode.AppendChild($dPt) | Out-Null
+    }
+}
+
+
+
 
 Close-ExcelPackage -ExcelPackage  $excel
 

@@ -109,7 +109,7 @@ function test-module {
 }
 # Disconnecting any existing Microsoft Graph session
 Write-Host "🔌 Disconnecting previous Microsoft Graph sign-in..." -ForegroundColor Yellow
-Disconnect-MgGraph
+# Disconnect-MgGraph
 
 Write-Host "🔎 Checking module: Microsoft.Graph.Authentication..." -ForegroundColor Blue
 Test-Module -Name Microsoft.Graph.Authentication
@@ -119,7 +119,7 @@ Test-Module -Name ImportExcel
 Write-Host "✅ All required modules are available. Please connect to Microsoft Graph." -ForegroundColor Green
 
 
-Connect-Mggraph -Scopes "Organization.Read.All", "user.read.all", "groupmember.read.all", "group.read.all", "application.read.all"
+# Connect-Mggraph -Scopes "Organization.Read.All", "user.read.all", "groupmember.read.all", "group.read.all", "application.read.all"
 
 $date = Get-Date -format yyyy-MM-dd 
 #Get organization name and remove any spaces in name

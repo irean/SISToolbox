@@ -53,7 +53,7 @@ function igall {
 
 # Ensure the Microsoft Graph module is imported
 test-Module Microsoft.Graph.Authentication
-
+Write-Host "Disconnecting from previous sessions (if any)" -Foregroundcolor Gray
 $connected = Get-MgContext
 if ($connected){
     disconnect-Mggraph
@@ -61,17 +61,42 @@ if ($connected){
 
 
 # Connect to Microsoft Graph
+Write-Host "Connecting to tenant, if you dont see login window, check behind others" -ForegroundColor Yellow
 Connect-MgGraph -Scopes "Application.Read.All", "Directory.Read.All", "Synchronization.Read.All"  -ContextScope Process
+
+$org = Igall "https://graph.microsoft.com/v1.0/organization"
+$orgdisplayName = $org.displayname
+
+Write-Host "You are now connected to $orgdisplayName. Let's proceed!"
 
 function Get-EnterpriseAppsSSOandSCIM {
 
-    param (
-        [Parameter(mandatory=$true)]
-        [String]$path
 
-    )
+
+Write-Host "--------------------------------------------------------" -ForegroundColor DarkGray
+Write-Host "Please select a folder where the report will be saved." -ForegroundColor Cyan
+Write-Host "⚠️  The folder selection window may appear behind other open windows." -ForegroundColor Yellow
+Write-Host "If you don't see it, try minimizing other windows." -ForegroundColor Yellow
+Write-Host "--------------------------------------------------------" -ForegroundColor DarkGray
+Add-Type -AssemblyName System.Windows.Forms
+$FileBrowser = New-Object System.Windows.Forms.FolderBrowserDialog -Property @{ 
+    InitialDirectory = [Environment]::GetFolderPath('Desktop') 
+}
+$result = $FileBrowser.ShowDialog(((New-Object System.Windows.Forms.Form -Property @{TopMost = $true })))
+if ($result -eq [Windows.Forms.DialogResult]::OK) {
+    $folder = $FileBrowser.SelectedPath
+    Write-Host "Export folder selected: $folder" -ForegroundColor Green
+}
+else {
+    Write-Host "❌ No folder selected. Exiting script." -ForegroundColor Red
+    return
+}
+    
+$date = Get-Date -Format yyyy-MM-dd
+$path = "$folder\$orgdisplayname-AppSSO&ScimReport$date.xlsx"
 
 # Get all Enterprise Applications
+Write-Host "Getting all Enterprise Applications" -ForegroundColor Gray
 $enterpriseApps = igall  "https://graph.microsoft.com/beta/servicePrincipals" | Where-object {
     $_.servicePrincipalType -like 'Application'
 }
@@ -79,9 +104,12 @@ $enterpriseApps = igall  "https://graph.microsoft.com/beta/servicePrincipals" | 
 $results = @()
 
 $enterpriseApps | Foreach-Object {
+
     $appname = $_.DisplayName
     $createdDate = $_.CreatedDateTime
     $id = $_.id
+    
+    Write-Host "Fetching information for app $appname"
 
     $scimProvisioning = $false
 
